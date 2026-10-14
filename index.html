@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c2340" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="UTT Attendance" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/utt_official_logo.svg" />
+    <link rel="icon" type="image/png" href="/utt_official_logo.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <script>
+      (function() {
+        // Defensive fix for fetch
+        try {
+          var originalFetch = window.fetch;
+          var _fetch = originalFetch;
+          try {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() { return _fetch; },
+              set: function(v) { _fetch = v; }
+            });
+          } catch (e1) {
+            try {
+              Object.defineProperty(Window.prototype, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function() { return _fetch; },
+                set: function(v) { _fetch = v; }
+              });
+            } catch (e2) {}
+          }
+        } catch (err) {}
+
+        // Global safety net for Vite websocket or unhandled transport errors
+        function shouldSuppress(msg) {
+          if (!msg || typeof msg !== 'string') return false;
+          return msg.indexOf('reading \'send\'') !== -1 ||
+                 msg.indexOf('failed to connect to websocket') !== -1 ||
+                 msg.indexOf('fetch of #<Window>') !== -1;
+        }
+
+        window.addEventListener('error', function(event) {
+          var msg = event && (event.message || (event.error && event.error.message));
+          if (shouldSuppress(msg)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event && event.reason;
+          var msg = reason && (reason.message || String(reason));
+          if (shouldSuppress(msg)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
+    <title>UTT Attendance - Hệ Thống Điểm Danh Sinh Viên Bằng Khuôn Mặt</title>
+    <meta name="description" content="Hệ thống điểm danh điện tử bằng nhận dạng khuôn mặt & Liveness Detection cho Trường Đại học Công nghệ Giao thông Vận tải." />
+    <meta property="og:title" content="UTT Attendance - Hệ Thống Điểm Danh Sinh Viên Bằng Khuôn Mặt" />
+    <meta property="og:description" content="Hệ thống điểm danh điện tử bằng nhận dạng khuôn mặt & Liveness Detection cho Trường Đại học Công nghệ Giao thông Vận tải." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased font-sans selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
