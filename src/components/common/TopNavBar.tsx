@@ -87,135 +87,74 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
   ];
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-        {/* Zone 1: Single text element Brand Wordmark with UTT Logo */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button 
-            onClick={() => setActiveTab('dashboard')}
-            className="flex items-center gap-2 text-left hover:opacity-90 transition-opacity"
-          >
-            <UttLogo size="md" showText={true} />
-          </button>
-          <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-            <span>Thử Nghiệm</span>
-          </span>
-        </div>
+    <header className="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#0c2340]/95 backdrop-blur-md transition-colors">
+      <div className="w-full px-2.5 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-1.5">
+        {/* Left: UTT Brand Logo & Title */}
+        <button 
+          onClick={() => setActiveTab('dashboard')}
+          className="flex items-center gap-1.5 text-left hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
+        >
+          <UttLogo size="sm" showText={false} />
+          <div className="flex flex-col">
+            <span className="text-xs sm:text-sm font-extrabold text-[#0c2340] dark:text-white leading-tight tracking-tight">
+              UTT Face ID
+            </span>
+            <span className="text-[9px] font-mono font-bold text-orange-600 dark:text-orange-400 leading-none">
+              Điểm Danh 1:N
+            </span>
+          </div>
+        </button>
 
-        {/* Zone 2: Clean text nav links (anti-slop, no pill enclosures) */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-          {navLinks.map(link => {
-            const isActive = activeTab === link.id;
-            return (
-              <button
-                key={link.id}
-                onClick={() => setActiveTab(link.id)}
-                className={`relative py-1 transition-colors whitespace-nowrap ${
-                  isActive
-                    ? 'text-orange-600 dark:text-orange-400 font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-[#0c2340] dark:hover:text-white'
-                }`}
-              >
-                {link.label}
-                {isActive && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-600 dark:bg-orange-500 rounded-full" />
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Zone 3: Actions (Kiosk CTA, Quick attendance CTA, Notifications, Dark mode, User Role switcher) */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* Mobile Preview & PWA Install Button */}
-          {onOpenMobileModal && (
-            <button
-              onClick={onOpenMobileModal}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${
-                isMobilePreviewActive
-                  ? 'bg-[#0c2340] text-white border-orange-500 shadow-sm'
-                  : 'text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700'
-              }`}
-              title="Xuất bản PWA, quét mã QR và giả lập màn hình Mobile"
-            >
-              <Smartphone className={`w-3.5 h-3.5 ${isMobilePreviewActive ? 'text-orange-400' : 'text-orange-600 dark:text-orange-400'}`} />
-              <span className="hidden sm:inline">{isMobilePreviewActive ? 'Đang bật Mobile' : 'Bản Mobile'}</span>
-              <span className="sm:hidden">App</span>
-            </button>
-          )}
-
-          {/* Campuses information button */}
-          <button
-            onClick={() => setShowCampusModal(true)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg shadow-2xs transition-all"
-            title="Xem địa chỉ trụ sở chính và các phân hiệu trường"
-          >
-            <Building className="w-3.5 h-3.5 text-[#0c2340] dark:text-blue-400" />
-            <span className="hidden md:inline">3 Cơ sở đào tạo</span>
-            <span className="md:hidden">Cơ sở</span>
-          </button>
-
+        {/* Right: Key Actions prioritized for mobile (Kiosk Cửa + Role Switcher SV/GV + Notifications + Dark mode) */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* NÚT KIOSK CỬA - NỔI BẬT VÀ DỄ BẤM */}
           <button
             onClick={onOpenKiosk}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#0c2340] dark:text-blue-200 bg-blue-50 dark:bg-[#0c2340]/60 hover:bg-orange-50 dark:hover:bg-[#0c2340] border border-blue-200 dark:border-blue-900 rounded-lg shadow-2xs transition-all"
-            title="Mở chế độ Kiosk màn hình đặt tại cửa phòng học"
+            className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl shadow-xs transition-all cursor-pointer"
+            title="Mở trạm Kiosk quét khuôn mặt tại cửa giảng đường"
           >
-            <Camera className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />
-            <span className="hidden sm:inline">Trạm Cửa Giảng Đường</span>
-            <span className="sm:hidden">Kiosk Cửa</span>
+            <Camera className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-[11px] sm:text-xs">Kiosk Cửa</span>
           </button>
 
-          {currentUser.role === 'student' && onOpenQuickAttendance && (
-            <button
-              onClick={onOpenQuickAttendance}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 active:scale-[0.98] rounded-lg shadow-sm transition-all"
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Điểm danh ngay</span>
-            </button>
-          )}
-
-          <button
-            onClick={onToggleDark}
-            aria-label="Chuyển chế độ sáng/tối"
-            className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={onOpenNotifications}
-            aria-label="Thông báo"
-            className="relative w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <Bell className="w-4 h-4" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-slate-900" />
-            )}
-          </button>
-
-          {/* User & Role Switcher */}
+          {/* NÚT CHUYỂN TÀI KHOẢN SV / GV / QTV */}
           <button
             onClick={onOpenRoleSwitcher}
-            className="flex items-center gap-2 p-1 pl-2 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors text-left"
+            className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 active:scale-95 transition-all text-left cursor-pointer"
+            title="Bấm để chuyển đổi giữa tài khoản Sinh viên, Giảng viên hoặc Quản trị viên"
           >
-            <div className="w-7 h-7 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 text-xs font-bold overflow-hidden">
+            <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0">
               {currentUser.avatarUrl ? (
-                <img src={currentUser.avatarUrl} alt={currentUser.fullName} className="w-full h-full object-cover" />
+                <img src={currentUser.avatarUrl} alt="" className="w-full h-full object-cover" />
               ) : (
                 currentUser.fullName.split(' ').slice(-1)[0][0]
               )}
             </div>
-            <div className="hidden lg:block text-xs leading-tight pr-1">
-              <div className="font-semibold text-slate-900 dark:text-white truncate max-w-[120px]">
-                {currentUser.fullName}
-              </div>
-              <div className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">
-                {currentUser.role === 'student' ? 'Sinh viên' : currentUser.role === 'lecturer' ? 'Giảng viên' : 'Quản trị viên'}
-              </div>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-[10px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-200">
+              {currentUser.role === 'student' ? 'SV' : currentUser.role === 'lecturer' ? 'GV' : 'QTV'}
+            </span>
+            <ChevronDown className="w-3 h-3 text-slate-500 dark:text-slate-400 shrink-0" />
+          </button>
+
+          {/* Nút Chuông Thông Báo */}
+          <button
+            onClick={onOpenNotifications}
+            aria-label="Thông báo"
+            className="relative p-1.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-1 ring-white dark:ring-slate-900" />
+            )}
+          </button>
+
+          {/* Nút Đổi Chế Độ Sáng/Tối */}
+          <button
+            onClick={onToggleDark}
+            aria-label="Chuyển chế độ sáng/tối"
+            className="p-1.5 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+          >
+            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
           </button>
         </div>
       </div>

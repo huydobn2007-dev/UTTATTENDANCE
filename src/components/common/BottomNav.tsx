@@ -18,6 +18,8 @@ interface BottomNavProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onOpenQuickAttendance?: () => void;
+  onOpenKiosk?: () => void;
+  onOpenRoleSwitcher?: () => void;
 }
 
 interface TabItem {
@@ -31,7 +33,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   role,
   activeTab,
   setActiveTab,
-  onOpenQuickAttendance
+  onOpenQuickAttendance,
+  onOpenKiosk,
+  onOpenRoleSwitcher
 }) => {
   const studentTabs: TabItem[] = [
     { id: 'dashboard', label: 'Tổng quan', icon: Home },
@@ -44,17 +48,17 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const lecturerTabs: TabItem[] = [
     { id: 'dashboard', label: 'Tổng quan', icon: Home },
     { id: 'monitor', label: 'Giám sát', icon: Monitor },
+    { id: 'kiosk_trigger', label: 'Kiosk Cửa', icon: Camera, isAction: true },
     { id: 'classes', label: 'Lớp học', icon: Users },
-    { id: 'appeals', label: 'Khiếu nại', icon: CheckSquare },
-    { id: 'reports', label: 'Báo cáo', icon: FileText }
+    { id: 'appeals', label: 'Khiếu nại', icon: CheckSquare }
   ];
 
   const adminTabs: TabItem[] = [
     { id: 'dashboard', label: 'Tổng quan', icon: Home },
     { id: 'students', label: 'Sinh viên', icon: Users },
+    { id: 'kiosk_trigger', label: 'Kiosk Cửa', icon: Camera, isAction: true },
     { id: 'sessions', label: 'Phiên', icon: Calendar },
-    { id: 'face_settings', label: 'Cấu hình AI', icon: ShieldCheck },
-    { id: 'reports', label: 'Báo cáo', icon: FileText }
+    { id: 'face_settings', label: 'Cấu hình AI', icon: ShieldCheck }
   ];
 
   const tabs = role === 'student' ? studentTabs : role === 'lecturer' ? lecturerTabs : adminTabs;
@@ -68,11 +72,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           const isActive = activeTab === tab.id;
 
           if (tab.isAction) {
+            const handleAction = tab.id === 'kiosk_trigger' ? onOpenKiosk : onOpenQuickAttendance;
             return (
               <button
                 key={tab.id}
-                onClick={onOpenQuickAttendance}
-                className="flex flex-col items-center justify-center min-h-[48px] py-1 -mt-3 text-white transition-transform active:scale-95"
+                onClick={handleAction}
+                className="flex flex-col items-center justify-center min-h-[48px] py-1 -mt-3 text-white transition-transform active:scale-95 cursor-pointer"
               >
                 <div className="w-11 h-11 rounded-full bg-orange-600 shadow-lg shadow-orange-600/40 ring-2 ring-orange-400 flex items-center justify-center">
                   <Icon className="w-5 h-5 text-white" />

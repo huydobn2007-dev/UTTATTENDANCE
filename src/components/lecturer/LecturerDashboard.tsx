@@ -22,13 +22,17 @@ interface LecturerDashboardProps {
   onOpenCreateSession: () => void;
   onNavigateTab: (tab: string) => void;
   onOpenLiveMonitor: (sessionId: string) => void;
+  onOpenKiosk?: () => void;
+  onOpenRoleSwitcher?: () => void;
 }
 
 export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
   lecturer,
   onOpenCreateSession,
   onNavigateTab,
-  onOpenLiveMonitor
+  onOpenLiveMonitor,
+  onOpenKiosk,
+  onOpenRoleSwitcher
 }) => {
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null);
@@ -103,6 +107,28 @@ export const LecturerDashboard: React.FC<LecturerDashboardProps> = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Quick Action Shortcuts: Kiosk Cửa & Chuyển Đổi Tài Khoản */}
+      <div className="grid grid-cols-2 gap-2.5">
+        {onOpenKiosk && (
+          <button
+            onClick={onOpenKiosk}
+            className="p-3 rounded-2xl bg-orange-600/10 hover:bg-orange-600/20 border border-orange-500/30 text-orange-600 dark:text-orange-400 flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer"
+          >
+            <Camera className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+            <span>Mở Kiosk Quét Cửa</span>
+          </button>
+        )}
+        {onOpenRoleSwitcher && (
+          <button
+            onClick={onOpenRoleSwitcher}
+            className="p-3 rounded-2xl bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-700 dark:text-blue-300 flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer"
+          >
+            <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>Đổi tài khoản SV/GV</span>
+          </button>
+        )}
       </div>
 
       {/* 4 Metric Stats */}

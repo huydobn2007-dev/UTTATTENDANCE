@@ -22,13 +22,17 @@ interface StudentDashboardProps {
   onOpenAttendanceModal: () => void;
   onOpenRegistrationModal: () => void;
   onNavigateTab: (tab: string) => void;
+  onOpenKiosk?: () => void;
+  onOpenRoleSwitcher?: () => void;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   student,
   onOpenAttendanceModal,
   onOpenRegistrationModal,
-  onNavigateTab
+  onNavigateTab,
+  onOpenKiosk,
+  onOpenRoleSwitcher
 }) => {
   const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null);
   const [activeCourse, setActiveCourse] = useState<Course | null>(null);
@@ -143,6 +147,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
         {/* Decorative background glow */}
         <div className="absolute -right-20 -bottom-20 w-80 h-80 rounded-full bg-orange-500/15 blur-3xl pointer-events-none" />
+      </div>
+
+      {/* Quick Action Shortcuts: Kiosk Cửa & Chuyển Đổi Tài Khoản */}
+      <div className="grid grid-cols-2 gap-2.5">
+        {onOpenKiosk && (
+          <button
+            onClick={onOpenKiosk}
+            className="p-3 rounded-2xl bg-orange-600/10 hover:bg-orange-600/20 border border-orange-500/30 text-orange-600 dark:text-orange-400 flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer"
+          >
+            <Camera className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+            <span>Mở Kiosk Quét Cửa</span>
+          </button>
+        )}
+        {onOpenRoleSwitcher && (
+          <button
+            onClick={onOpenRoleSwitcher}
+            className="p-3 rounded-2xl bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-700 dark:text-blue-300 flex items-center justify-center gap-2 text-xs font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer"
+          >
+            <UserCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>Đổi tài khoản SV/GV</span>
+          </button>
+        )}
       </div>
 
       {/* Metric Cards - 4 Columns */}

@@ -158,6 +158,8 @@ export default function App() {
                 onOpenAttendanceModal={() => setIsAttendanceModalOpen(true)}
                 onOpenRegistrationModal={() => setIsRegisterModalOpen(true)}
                 onNavigateTab={tab => setActiveTab(tab)}
+                onOpenKiosk={() => setIsKioskMode(true)}
+                onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
               />
             )}
             {activeTab === 'attendance' && (
@@ -166,6 +168,8 @@ export default function App() {
                 onOpenAttendanceModal={() => setIsAttendanceModalOpen(true)}
                 onOpenRegistrationModal={() => setIsRegisterModalOpen(true)}
                 onNavigateTab={tab => setActiveTab(tab)}
+                onOpenKiosk={() => setIsKioskMode(true)}
+                onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
               />
             )}
             {activeTab === 'schedule' && (
@@ -205,6 +209,8 @@ export default function App() {
                     onOpenCreateSession={() => setIsCreateSessionModalOpen(true)}
                     onNavigateTab={tab => setActiveTab(tab)}
                     onOpenLiveMonitor={sessId => setLiveMonitorSessionId(sessId)}
+                    onOpenKiosk={() => setIsKioskMode(true)}
+                    onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
                   />
                 )}
                 {activeTab === 'monitor' && (
@@ -244,6 +250,8 @@ export default function App() {
                   <AdminDashboard
                     admin={currentUser}
                     onNavigateTab={tab => setActiveTab(tab)}
+                    onOpenKiosk={() => setIsKioskMode(true)}
+                    onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
                   />
                 )}
                 {activeTab === 'students' && <AdminStudents />}
@@ -344,6 +352,8 @@ export default function App() {
           setLiveMonitorSessionId(null);
         }}
         onOpenQuickAttendance={() => setIsAttendanceModalOpen(true)}
+        onOpenKiosk={() => setIsKioskMode(true)}
+        onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
       />
 
       {/* Modals */}
