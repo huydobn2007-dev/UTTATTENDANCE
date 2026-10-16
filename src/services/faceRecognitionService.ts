@@ -213,14 +213,13 @@ export class FaceRecognitionService {
         const Cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
 
         const isSkin =
-          r > 60 && g > 40 && b > 25 &&
-          r > g && g > b &&
-          (r - g) >= 12 &&
-          (g - b) >= 6 &&
-          Cb >= 75 && Cb <= 135 &&
-          Cr >= 130 && Cr <= 180 &&
-          rNorm >= 0.34 && rNorm <= 0.62 &&
-          gNorm >= 0.26 && gNorm <= 0.40;
+          r >= 38 && g >= 24 && b >= 14 &&
+          (r >= b - 2) &&
+          (r - Math.min(g, b) >= 4) &&
+          Cb >= 66 && Cb <= 150 &&
+          Cr >= 122 && Cr <= 190 &&
+          rNorm >= 0.29 && rNorm <= 0.68 &&
+          gNorm >= 0.22 && gNorm <= 0.45;
 
         if (isSkin) {
           skinPixelCount++;
@@ -257,14 +256,14 @@ export class FaceRecognitionService {
     // Compute localized face center and bounding box from skin cluster
     let faceCenterX = centerX;
     let faceCenterY = centerY;
-    let faceW = width * 0.45;
-    let faceH = height * 0.55;
+    let faceW = width * 0.48;
+    let faceH = height * 0.58;
 
-    if (skinPixelCount >= 80) {
+    if (skinPixelCount >= 35) {
       faceCenterX = sumSkinX / skinPixelCount;
       faceCenterY = sumSkinY / skinPixelCount;
-      faceW = Math.max(width * 0.18, Math.min(width * 0.85, (maxSkinX - minSkinX) * 1.10));
-      faceH = Math.max(height * 0.22, Math.min(height * 0.88, (maxSkinY - minSkinY) * 1.10));
+      faceW = Math.max(width * 0.15, Math.min(width * 0.90, (maxSkinX - minSkinX) * 1.15));
+      faceH = Math.max(height * 0.18, Math.min(height * 0.92, (maxSkinY - minSkinY) * 1.15));
     }
 
     const faceRect = {
@@ -277,12 +276,6 @@ export class FaceRecognitionService {
     };
 
     // Calculate multi-zone facial anthropometry across the face ROI:
-    // Human face structure requires:
-    // 1. Forehead band (y: 10% - 22%): smooth, brighter reflection
-    // 2. Dual Eye sockets (y: 24% - 42%): Left eye (x: 20% - 42%) and Right eye (x: 58% - 80%) are darker dips
-    // 3. Nasal bridge (y: 24% - 42%, x: 43% - 57%): brighter ridge separating the two eye sockets
-    // 4. Cheeks (y: 46% - 68%): prominent bright vascular reflection
-    // 5. Mouth zone (y: 70% - 88%): lips contrast
     let roiLumSum = 0;
     let roiLumSqSum = 0;
     let roiSampleCnt = 0;
@@ -298,16 +291,16 @@ export class FaceRecognitionService {
     let cheekLumSum = 0;
     let cheekCnt = 0;
 
-    const roiStartX = Math.max(0, Math.floor(faceRect.x + faceRect.width * 0.12));
-    const roiEndX = Math.min(width, Math.floor(faceRect.x + faceRect.width * 0.88));
-    const roiStartY = Math.max(0, Math.floor(faceRect.y + faceRect.height * 0.10));
-    const roiEndY = Math.min(height, Math.floor(faceRect.y + faceRect.height * 0.88));
+    const roiStartX = Math.max(0, Math.floor(faceRect.x + faceRect.width * 0.10));
+    const roiEndX = Math.min(width, Math.floor(faceRect.x + faceRect.width * 0.90));
+    const roiStartY = Math.max(0, Math.floor(faceRect.y + faceRect.height * 0.08));
+    const roiEndY = Math.min(height, Math.floor(faceRect.y + faceRect.height * 0.90));
 
-    const yForeheadEnd = faceRect.y + faceRect.height * 0.22;
-    const yEyeStart = faceRect.y + faceRect.height * 0.24;
-    const yEyeEnd = faceRect.y + faceRect.height * 0.44;
-    const yCheekStart = faceRect.y + faceRect.height * 0.46;
-    const yCheekEnd = faceRect.y + faceRect.height * 0.68;
+    const yForeheadEnd = faceRect.y + faceRect.height * 0.25;
+    const yEyeStart = faceRect.y + faceRect.height * 0.25;
+    const yEyeEnd = faceRect.y + faceRect.height * 0.48;
+    const yCheekStart = faceRect.y + faceRect.height * 0.48;
+    const yCheekEnd = faceRect.y + faceRect.height * 0.72;
 
     const xLeftEyeEnd = faceRect.x + faceRect.width * 0.42;
     const xNoseBridgeStart = faceRect.x + faceRect.width * 0.43;
@@ -353,49 +346,36 @@ export class FaceRecognitionService {
     const avgCheekLum = cheekCnt > 0 ? cheekLumSum / cheekCnt : roiMean;
     const avgEyeLum = (avgLeftEyeLum + avgRightEyeLum) / 2;
 
-    // Strict Anthropometric Face Test:
-    // 1. Cheeks must be brighter than eye sockets: avgCheekLum - avgEyeLum >= 4.5
-    // 2. Forehead must be brighter than eye sockets: avgForeheadLum - avgEyeLum >= 3.0
-    // 3. Nasal ridge must be brighter than at least one eye socket: avgNoseBridgeLum - Math.min(avgLeftEyeLum, avgRightEyeLum) >= 3.0
-    // A wall corner, door frame, desk, or ceiling has continuous monotonic lighting and CANNOT pass this bilateral triad!
-    const hasCheekContrast = (avgCheekLum - avgEyeLum) >= 4.5;
-    const hasForeheadContrast = (avgForeheadLum - avgEyeLum) >= 3.0;
-    const hasNoseBridgeRelief = (avgNoseBridgeLum - Math.min(avgLeftEyeLum, avgRightEyeLum)) >= 3.0;
-    const hasHumanFaceAnatomy = hasCheekContrast && (hasForeheadContrast || hasNoseBridgeRelief);
+    // Realistic indoor facial anthropometry:
+    // Human face has relief (forehead/cheeks vs eye sockets) or distinct texture
+    const hasFacialTexture = roiVariance >= 14;
+    const hasFaceRelief =
+      (avgCheekLum - avgEyeLum >= 0.1) ||
+      (avgForeheadLum - avgEyeLum >= 0.1) ||
+      (avgNoseBridgeLum - Math.min(avgLeftEyeLum, avgRightEyeLum) >= 0.1) ||
+      roiVariance >= 18;
 
     // Human face aspect ratio & bounding box scale
     const faceAspect = faceRect.width / (faceRect.height || 1);
-    const isAspectValid = faceAspect >= 0.62 && faceAspect <= 1.32;
-    const isSizeValid = faceW >= width * 0.20 && faceW <= width * 0.82 && faceH >= height * 0.24 && faceH <= height * 0.86;
+    const isAspectValid = faceAspect >= 0.48 && faceAspect <= 1.55;
+    const isSizeValid = faceW >= width * 0.14 && faceW <= width * 0.94 && faceH >= height * 0.16 && faceH <= height * 0.96;
 
-    // Skin fill ratio inside detected bounding box (rejects vertical lines, door edges, corner cracks)
-    const boxSamples = ((faceW / 4) * (faceH / 4)) || 1;
-    const skinFillRatio = skinPixelCount / boxSamples;
-    const isFillRatioValid = skinFillRatio >= 0.28 && skinFillRatio <= 0.88;
+    // Skin presence: genuine skin pixels present
+    const hasSufficientSkin = skinPixelCount >= 38 && skinRatio >= 0.010;
 
-    // Genuine Hand/Obstruction check:
-    const isHandDetected = skinRatio > 0.80 && roiVariance < 40;
+    // Hand/Obstruction check: flat uniform skin covering lens
+    const isHandDetected = skinRatio > 0.85 && roiVariance < 16;
 
-    // Strict Real Human Face Criteria:
-    // 1. Substantial skin cluster (at least 220 samples or skinRatio >= 0.05)
-    // 2. High oval concentration (centerRatio >= 0.60)
-    // 3. Valid facial aspect ratio and size
-    // 4. Compact oval fill ratio (not a thin corner crease or long strip)
-    // 5. Texture variance indicating eyes/lips/nose (variance in [50, 2500])
-    // 6. Strict bilateral facial anthropometry (Cheeks > Eyes, Forehead > Eyes, Nose > Eyes)
-    // 7. Centroid firmly inside oval
-    const isCenterAligned = Math.abs(faceCenterX - centerX) < width * 0.20 && Math.abs(faceCenterY - centerY) < height * 0.20;
-    const hasSufficientSkin = skinPixelCount >= 220 && skinRatio >= 0.048 && centerRatio >= 0.60;
-    const hasValidTexture = roiVariance >= 50 && roiVariance <= 2500;
+    // Oval centroid alignment: face centroid must be generally centered in the guide
+    const isCenterAligned = Math.abs(faceCenterX - centerX) < width * 0.38 && Math.abs(faceCenterY - centerY) < height * 0.38;
 
     const hasFace =
       hasSufficientSkin &&
       isAspectValid &&
       isSizeValid &&
-      isFillRatioValid &&
       !isHandDetected &&
-      hasValidTexture &&
-      hasHumanFaceAnatomy &&
+      hasFacialTexture &&
+      hasFaceRelief &&
       isCenterAligned;
 
     // In oval: face is centrally placed in the guide
@@ -419,7 +399,7 @@ export class FaceRecognitionService {
       message = 'Đang chờ sinh viên bước vào khung hình...';
     } else if (!inOval) {
       message = 'Căn chỉnh khuôn mặt vào giữa khung bầu dục';
-    } else if (brightness < 8) {
+    } else if (brightness < 6) {
       message = 'Ánh sáng quá tối, vui lòng bật thêm đèn';
     } else if (brightness > 99) {
       message = 'Ánh sáng bị chói, tránh nguồn sáng chiếu thẳng';

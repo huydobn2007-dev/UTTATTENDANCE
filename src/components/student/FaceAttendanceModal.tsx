@@ -658,8 +658,8 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
                 </div>
               </div>
 
-              {/* Camera Frame with Oval Overlay */}
-              <div className="relative w-72 h-80 sm:w-80 sm:h-96 rounded-3xl overflow-hidden bg-slate-950 shadow-inner flex items-center justify-center">
+              {/* Camera Frame with Oval Overlay - Mobile Responsive */}
+              <div className="relative w-full max-w-[340px] aspect-[3/4] max-h-[50vh] rounded-3xl overflow-hidden bg-slate-950 shadow-inner flex items-center justify-center mx-auto">
                 {cameraLoading ? (
                   <div className="flex flex-col items-center gap-2 text-white/80 text-xs font-mono">
                     <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />

@@ -400,19 +400,21 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
           // STRICT FACE CHECK: Only proceed if a REAL human face is detected inside the oval!
           // NEVER auto-trigger on an empty room, wall, desk, or ceiling!
           if (!analysis.hasFace || !analysis.inOval) {
-            consecutiveFaceFramesRef.current = 0;
-            setFaceDetectedInOval(false);
-            setHudScanMessage(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
+            consecutiveFaceFramesRef.current = Math.max(0, consecutiveFaceFramesRef.current - 1);
+            if (consecutiveFaceFramesRef.current === 0) {
+              setFaceDetectedInOval(false);
+              setHudScanMessage(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
+            }
             return;
           }
 
           // A real human face is actively verified inside the oval!
           consecutiveFaceFramesRef.current++;
           setFaceDetectedInOval(true);
-          setHudScanMessage('Đã phát hiện khuôn mặt · Đang xác thực...');
+          setHudScanMessage('Đã phát hiện khuôn mặt · Đang đối sánh 1:N...');
 
-          // Trigger 1:N after 2 stable frames (~800ms)
-          if (consecutiveFaceFramesRef.current >= 2) {
+          // Responsive identification: Trigger after 1 high-score frame or 2 stable frames (~400-800ms)
+          if (consecutiveFaceFramesRef.current >= (analysis.score >= 90 ? 1 : 2)) {
             consecutiveFaceFramesRef.current = 0;
             setIsProcessingFace(true);
 
@@ -721,141 +723,74 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
   const totalRoster = enrolledStudents.length || 20;
 
   return (
-    <div className={`min-h-screen bg-slate-950 text-white flex flex-col font-sans selection:bg-blue-600 transition-all ${isMobilePreviewMode ? 'max-w-[420px] mx-auto border-x-8 border-y-8 border-slate-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-[40px] overflow-hidden my-3' : ''}`}>
-      {/* Mobile Simulator Top Notch */}
-      {isMobilePreviewMode && (
-        <div className="bg-slate-900 px-6 py-1.5 flex items-center justify-between text-[11px] text-slate-400 font-mono border-b border-slate-800">
-          <span>9:41</span>
-          <div className="w-20 h-4 bg-black rounded-full" />
-          <div className="flex items-center gap-1.5">
-            <span>5G</span>
-            <span>100%</span>
-          </div>
-        </div>
-      )}
-
-      {/* 1. KIOSK HEADER: Institutional Identity & Lecture Hall Info */}
-      <header className="border-b border-orange-500/30 bg-[#0c2340]/95 backdrop-blur-md px-4 sm:px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3.5">
-          <UttLogo size="lg" />
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-bold text-orange-400 tracking-wider uppercase font-mono">
-                TRƯỜNG ĐH CÔNG NGHỆ GIAO THÔNG VẬN TẢI · UTT
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col font-sans selection:bg-blue-600 w-full max-w-[430px] mx-auto relative shadow-2xl overflow-x-hidden">
+      {/* 1. KIOSK HEADER: Mobile Institutional Identity & Lecture Hall Info */}
+      <header className="border-b border-orange-500/30 bg-[#0c2340]/95 backdrop-blur-md px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0 z-30">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <UttLogo size="sm" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-orange-400 tracking-wider uppercase font-mono truncate">
+                UTT KIOSK CỬA
               </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-              <span className="text-[10px] text-emerald-400 font-mono font-bold">KIOSK ONLINE</span>
-
-              {/* Campus Selector */}
-              <div className="flex items-center gap-1 bg-[#12335e]/80 px-2 py-0.5 rounded-lg border border-orange-500/30">
-                <MapPin className="w-3 h-3 text-orange-400 shrink-0" />
-                <select
-                  value={selectedCampusId}
-                  onChange={e => setSelectedCampusId(e.target.value)}
-                  className="bg-transparent text-[11px] font-semibold text-slate-100 focus:outline-hidden cursor-pointer"
-                >
-                  {campuses.map(c => (
-                    <option key={c.id} value={c.id} className="bg-[#0c2340] text-white">
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
             </div>
-
-            <h1 className="text-sm sm:text-base font-bold text-white flex flex-wrap items-center gap-2 mt-0.5">
-              <span className="text-white">TRẠM ĐIỂM DANH CỬA GIẢNG ĐƯỜNG</span>
-              <span className="text-orange-500">·</span>
-              <span className="text-orange-300 font-mono font-bold">{room?.code || 'Lab 501-H1'} ({room?.building || 'Tòa H1'})</span>
-              <span className="text-slate-500">·</span>
-              <span className="text-xs font-normal text-slate-300 truncate max-w-xs">
-                {currentCampus.address}
-              </span>
-            </h1>
+            <div className="text-xs font-bold text-white truncate flex items-center gap-1">
+              <span>{room?.code || 'P.501-A1'}</span>
+              <span className="text-orange-400">·</span>
+              <span className="text-slate-300 font-mono text-[11px] truncate">{course?.code || '72DCHT21'}</span>
+            </div>
           </div>
         </div>
 
-        {/* Current Class Period & Clock */}
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="text-right hidden sm:block">
-            <div className="text-sm font-bold font-mono text-white tabular-nums tracking-wide">
-              {currentTimeStr}
-            </div>
-            <div className="text-[11px] text-slate-400 capitalize">
-              {currentDateStr}
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            {/* Camera Switcher for Mobile */}
-            {useHardwareCamera && (
-              <button
-                onClick={toggleCameraFacing}
-                className="p-2 rounded-xl border border-slate-700 bg-slate-800 text-cyan-400 hover:bg-slate-700 transition-colors flex items-center gap-1"
-                title={`Đang dùng: ${facingMode === 'user' ? 'Camera Trước (Selfie)' : 'Camera Sau'} - Bấm để đổi`}
-              >
-                <SwitchCamera className="w-4 h-4" />
-                <span className="hidden sm:inline text-xs font-medium">{facingMode === 'user' ? 'Cam trước' : 'Cam sau'}</span>
-              </button>
-            )}
-
-            {/* Mobile View Toggle */}
+        {/* Action buttons on mobile header */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Camera Switcher for Mobile */}
+          {useHardwareCamera && (
             <button
-              onClick={() => setIsMobilePreviewMode(!isMobilePreviewMode)}
-              className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                isMobilePreviewMode
-                  ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300'
-                  : 'border-slate-800 bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-              title="Xem bản giả lập hiển thị trên điện thoại di động"
+              onClick={toggleCameraFacing}
+              className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-cyan-400 hover:bg-slate-700 transition-colors cursor-pointer"
+              title={`Đang dùng: ${facingMode === 'user' ? 'Camera Trước (Selfie)' : 'Camera Sau'} - Bấm để đổi`}
             >
-              {isMobilePreviewMode ? <Smartphone className="w-3.5 h-3.5 text-cyan-400" /> : <Monitor className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{isMobilePreviewMode ? 'Bản Mobile' : 'Mô phỏng Mobile'}</span>
+              <SwitchCamera className="w-4 h-4" />
             </button>
+          )}
 
-            {/* Auto scan status badge button */}
-            <button
-              onClick={() => setIsAutoScanning(!isAutoScanning)}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-colors ${
-                isAutoScanning
-                  ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300'
-                  : 'border-slate-800 bg-slate-800 text-slate-400'
-              }`}
-              title="Bật/Tắt tự động quét khi phát hiện khuôn mặt"
-            >
-              <Zap className={`w-3.5 h-3.5 ${isAutoScanning ? 'text-emerald-400 fill-emerald-400' : 'text-slate-500'}`} />
-              <span className="hidden sm:inline">{isAutoScanning ? 'Tự động quét: BẬT' : 'Tự động: TẮT'}</span>
-            </button>
+          {/* Voice Toggle */}
+          <button
+            onClick={() => setEnableVoice(!enableVoice)}
+            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+              enableVoice
+                ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                : 'border-slate-800 bg-slate-800 text-slate-400'
+            }`}
+            title={enableVoice ? 'Tắt giọng nói tiếng Việt' : 'Bật giọng nói tiếng Việt'}
+          >
+            {enableVoice ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
 
-            <button
-              onClick={() => setEnableVoice(!enableVoice)}
-              className={`p-2 rounded-xl border transition-colors ${
-                enableVoice
-                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
-                  : 'border-slate-800 bg-slate-800 text-slate-400'
-              }`}
-              title={enableVoice ? 'Tắt giọng nói tiếng Việt' : 'Bật giọng nói tiếng Việt'}
-            >
-              {enableVoice ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </button>
+          {/* Auto-scan indicator */}
+          <button
+            onClick={() => setIsAutoScanning(!isAutoScanning)}
+            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+              isAutoScanning
+                ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300'
+                : 'border-slate-800 bg-slate-800 text-slate-400'
+            }`}
+            title={isAutoScanning ? 'Tự động quét: BẬT' : 'Tự động quét: TẮT'}
+          >
+            <Zap className={`w-4 h-4 ${isAutoScanning ? 'fill-emerald-400 text-emerald-400' : ''}`} />
+          </button>
 
-            <button
-              onClick={toggleFullScreen}
-              className="p-2 rounded-xl border border-slate-800 bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition-colors hidden sm:flex"
-              title="Toàn màn hình Kiosk"
-            >
-              <Maximize className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={onExitKiosk}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Cổng QTV</span>
-            </button>
-          </div>
+          {/* Exit Kiosk Button */}
+          <button
+            onClick={onExitKiosk}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+            title="Thoát chế độ Kiosk"
+          >
+            <LogOut className="w-3.5 h-3.5 text-orange-400" />
+            <span className="text-[11px]">Đóng</span>
+          </button>
         </div>
       </header>
 
@@ -910,30 +845,30 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
       </div>
 
       {/* 2. MAIN KIOSK VIEWPORT: Door Camera & Live Passing Students */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden">
-        {/* Left 8 Cols: Active Camera Feed & Automatic 1:N Face Recognition */}
-        <div className={`${mobileKioskTab === 'camera' ? 'flex' : 'hidden lg:flex'} lg:col-span-8 p-3 sm:p-6 flex-col items-center justify-center relative bg-black/60 border-r border-slate-800/80`}>
+      <div className="flex-1 flex flex-col overflow-hidden w-full">
+        {/* Active Camera Feed & Automatic 1:N Face Recognition */}
+        <div className={`${mobileKioskTab === 'camera' ? 'flex' : 'hidden'} w-full p-3 sm:p-4 flex-col items-center justify-start relative bg-slate-950 flex-1 overflow-y-auto`}>
           {/* Top Status Banner */}
-          <div className="w-full max-w-lg mb-3 flex items-center justify-between text-xs">
+          <div className="w-full max-w-sm mb-2 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${faceDetectedInOval ? 'bg-cyan-400 animate-ping' : 'bg-emerald-500 animate-pulse'}`} />
-              <span className="font-semibold text-slate-200">
-                {useHardwareCamera ? `Camera Cửa (${facingMode === 'user' ? 'Trước' : 'Sau'})` : 'Camera Mô Phỏng Cửa AI'}
+              <span className="font-semibold text-slate-200 text-[11px]">
+                {useHardwareCamera ? `Camera Cửa (${facingMode === 'user' ? 'Trước' : 'Sau'})` : 'Camera Cửa AI'}
               </span>
             </div>
-            <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
               <span className="flex items-center gap-1 text-emerald-400 font-bold">
-                <Activity className="w-3.5 h-3.5" />
-                <span>Tự Động 1:N</span>
+                <Activity className="w-3 h-3" />
+                <span>1:N Auto</span>
               </span>
               <span>·</span>
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Liveness Active</span>
+              <ShieldCheck className="w-3 h-3 text-blue-400" />
+              <span>Liveness</span>
             </div>
           </div>
 
-          {/* Central Camera Display Frame */}
-          <div className="relative w-full max-w-md h-[340px] sm:h-[460px] rounded-3xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center">
+          {/* Central Camera Display Frame - Fitted perfectly to mobile viewport */}
+          <div className="relative w-full aspect-[3/4] max-h-[52vh] sm:max-h-[55vh] rounded-3xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-2xl flex items-center justify-center">
             {cameraLoading ? (
               <div className="flex flex-col items-center gap-2 text-white/80 text-xs font-mono">
                 <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
@@ -972,16 +907,22 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
 
             <canvas ref={canvasRef} className="hidden" width={320} height={380} />
 
-            {/* Target Face Oval Frame at Door Height */}
+            {/* 4 Viewfinder Corner Brackets for Mobile Camera */}
+            <div className="absolute top-3.5 left-3.5 w-5 h-5 border-t-2 border-l-2 border-cyan-400/80 rounded-tl pointer-events-none" />
+            <div className="absolute top-3.5 right-3.5 w-5 h-5 border-t-2 border-r-2 border-cyan-400/80 rounded-tr pointer-events-none" />
+            <div className="absolute bottom-3.5 left-3.5 w-5 h-5 border-b-2 border-l-2 border-cyan-400/80 rounded-bl pointer-events-none" />
+            <div className="absolute bottom-3.5 right-3.5 w-5 h-5 border-b-2 border-r-2 border-cyan-400/80 rounded-br pointer-events-none" />
+
+            {/* Target Face Oval Frame at Door Height - Perfectly sized for mobile face */}
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
               <div
-                className={`w-56 h-72 sm:w-64 sm:h-80 rounded-[48%] border-2 transition-all duration-300 ${
+                className={`w-48 h-64 sm:w-54 sm:h-72 rounded-[48%] border-2 transition-all duration-300 ${
                   identifiedStudent
                     ? identifiedStatus === 'present' || identifiedStatus === 'already'
-                      ? 'border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.6)] scale-102'
+                      ? 'border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.7)] scale-102'
                       : identifiedStatus === 'late'
-                      ? 'border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.6)] scale-102'
-                      : 'border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.6)]'
+                      ? 'border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.7)] scale-102'
+                      : 'border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.7)]'
                     : faceDetectedInOval
                     ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.7)] scale-100'
                     : 'border-blue-400/70 border-dashed animate-pulse'
@@ -1211,8 +1152,8 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
           </div>
         </div>
 
-        {/* Right 4 Cols: Real-time Attendance Statistics & Entry Stream */}
-        <div className={`${mobileKioskTab === 'roster' ? 'flex' : 'hidden lg:flex'} lg:col-span-4 p-3 sm:p-6 bg-slate-900/50 flex-col h-full border-t lg:border-t-0 border-slate-800`}>
+        {/* Sĩ số lớp & Nhật ký qua cửa - Mobile View */}
+        <div className={`${mobileKioskTab === 'roster' ? 'flex' : 'hidden'} w-full p-3 sm:p-4 bg-slate-900/60 flex-col flex-1 overflow-y-auto`}>
           {/* Roster & Attendance Counts */}
           <div className="space-y-3 mb-4">
             <h2 className="text-sm font-bold text-white flex items-center justify-between">

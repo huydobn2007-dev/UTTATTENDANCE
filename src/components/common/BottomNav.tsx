@@ -60,8 +60,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const tabs = role === 'student' ? studentTabs : role === 'lecturer' ? lecturerTabs : adminTabs;
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0c2340]/95 backdrop-blur-md border-t border-slate-200 dark:border-orange-500/20 transition-colors">
-      <div className="grid grid-flow-col auto-cols-fr items-center h-16 px-1 max-w-lg mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none transition-colors">
+      <div className="w-full max-w-[430px] mx-auto bg-white/95 dark:bg-[#0c2340]/95 backdrop-blur-md border-t border-slate-200 dark:border-orange-500/20 pointer-events-auto shadow-lg">
+        <div className="grid grid-flow-col auto-cols-fr items-center h-16 px-1">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -100,6 +101,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             </button>
           );
         })}
+        </div>
       </div>
     </nav>
   );

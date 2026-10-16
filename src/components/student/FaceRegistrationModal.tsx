@@ -380,8 +380,8 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
               </div>
             </div>
 
-            {/* Viewfinder */}
-            <div className="relative w-64 h-80 rounded-3xl overflow-hidden bg-slate-950 flex items-center justify-center shadow-inner">
+            {/* Viewfinder - Mobile Fitted */}
+            <div className="relative w-full max-w-[320px] aspect-[3/4] max-h-[48vh] rounded-3xl overflow-hidden bg-slate-950 flex items-center justify-center shadow-inner mx-auto">
               {cameraLoading ? (
                 <div className="flex flex-col items-center gap-2 text-white/80 text-xs font-mono">
                   <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
