@@ -103,9 +103,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const absentPercent = Math.round((absents / totalRecs) * 100);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="space-y-4 w-full px-3 sm:px-4 py-4">
       {/* Welcome Banner with UTT Branding */}
-      <div className="relative overflow-hidden rounded-3xl bg-linear-to-r from-[#0c2340] via-[#0f2b5c] to-slate-900 border border-orange-500/30 text-white p-6 sm:p-8 shadow-2xl">
+      <div className="relative overflow-hidden rounded-3xl bg-linear-to-r from-[#0c2340] via-[#0f2b5c] to-slate-900 border border-orange-500/30 text-white p-4 sm:p-6 shadow-xl">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-start sm:items-center gap-4">
             <UttLogo size="xl" className="hidden sm:inline-flex" />

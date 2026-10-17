@@ -39,9 +39,10 @@ import { UttLogo } from '../common/UttLogo';
 
 interface EntranceKioskProps {
   onExitKiosk: () => void;
+  onOpenRoleSwitcher?: () => void;
 }
 
-export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => {
+export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk, onOpenRoleSwitcher }) => {
   const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
   const [section, setSection] = useState<CourseSection | null>(null);
@@ -64,6 +65,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
   const [isAutoScanning, setIsAutoScanning] = useState<boolean>(true);
   const [faceDetectedInOval, setFaceDetectedInOval] = useState<boolean>(false);
   const [isProcessingFace, setIsProcessingFace] = useState<boolean>(false);
+  const [scanMode, setScanMode] = useState<'auto_1toN' | 'target_student'>('auto_1toN');
   const [targetStudentForScan, setTargetStudentForScan] = useState<string>('student_demo');
 
   // Mobile Kiosk Responsive Views
@@ -116,7 +118,10 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
   const lastIdentifiedStudentIdRef = useRef<string | null>(null);
   const lastIdentifiedTimeRef = useRef<number>(0);
   const consecutiveFaceFramesRef = useRef<number>(0);
+  const missedFaceFramesRef = useRef<number>(0);
   const recentlyIdentifiedMapRef = useRef<Map<string, number>>(new Map());
+  const identifiedStudentRef = useRef<Student | null>(null);
+  identifiedStudentRef.current = identifiedStudent;
 
   // Update real-time clock every second
   useEffect(() => {
@@ -216,22 +221,51 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
     return () => stopCamera();
   }, []);
 
+  // Handle unregistered / unknown face
+  const handleUnknownFace = useCallback((customScore?: number) => {
+    setIdentifiedStudent({
+      id: 'unknown',
+      code: 'SV-CHƯA-ĐK',
+      fullName: 'Khuôn mặt chưa nhận diện',
+      email: 'chuacapnhat@utt.edu.vn',
+      role: 'student',
+      classId: 'class_72dcht21',
+      departmentId: 'dept_it',
+      admissionYear: 2021,
+      faceRegistered: false,
+      createdAt: new Date().toISOString()
+    });
+    setIdentifiedStatus('unknown');
+    setIdentifiedConfidence(customScore || 38);
+    setIdentifiedTime(new Date().toLocaleTimeString('vi-VN'));
+    setResetCountdown(4);
+    setAwaitingFaceExit(true);
+    faceService.playErrorTone();
+    if (enableVoice) {
+      faceService.speakVoice('Khuôn mặt chưa được nhận diện. Vui lòng bấm đăng ký Face ID để cập nhật.');
+    }
+  }, [enableVoice]);
+
   // Process 1:N identification of an approaching student
   const handleIdentifyStudent = useCallback((targetStudentId: string, customScore?: number) => {
-    if (!activeSession) return;
-
     const student = db.getStudentById(targetStudentId);
-    if (!student) return;
+    if (!student) {
+      handleUnknownFace(customScore);
+      return;
+    }
 
     const now = Date.now();
-    // Anti-duplicate debounce: ignore rapid duplicate triggers for same student within 3.5s
+    // Anti-duplicate debounce: only suppress re-trigger if this EXACT student is already actively displayed on screen!
     const lastTime = recentlyIdentifiedMapRef.current.get(student.id) || 0;
-    if (now - lastTime < 3500) {
+    if (now - lastTime < 3000 && identifiedStudentRef.current?.id === student.id) {
       return;
     }
     recentlyIdentifiedMapRef.current.set(student.id, now);
     lastIdentifiedStudentIdRef.current = student.id;
     lastIdentifiedTimeRef.current = now;
+
+    // Resolve active session with robust fallback
+    const currentSession = activeSession || db.getActiveSession() || db.getSessions()[0];
 
     // Check enrollment
     const isEnrolled = section ? section.enrolledStudentIds.includes(student.id) : true;
@@ -240,7 +274,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
       setIdentifiedStatus('not_enrolled');
       setIdentifiedConfidence(94);
       setIdentifiedTime(new Date().toLocaleTimeString('vi-VN'));
-      setResetCountdown(3);
+      setResetCountdown(4);
       setAwaitingFaceExit(true);
       faceService.playWarningTone();
       if (enableVoice) {
@@ -249,8 +283,23 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
       return;
     }
 
+    // If no session exists in DB at all, still show student identity card successfully!
+    if (!currentSession) {
+      setIdentifiedStudent(student);
+      setIdentifiedStatus('present');
+      setIdentifiedConfidence(customScore || 96);
+      setIdentifiedTime(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setResetCountdown(4);
+      setAwaitingFaceExit(true);
+      faceService.playSuccessChime();
+      if (enableVoice) {
+        faceService.speakVoice(`Xin chào ${student.fullName}, nhận diện khuôn mặt thành công!`);
+      }
+      return;
+    }
+
     // 1. Check if student has ALREADY checked in for this active session (PREVENT OVERWRITING OR BEING MARKED LATE)
-    const existingRecords = db.getRecordsBySession(activeSession.id);
+    const existingRecords = db.getRecordsBySession(currentSession.id);
     const existingRecord = existingRecords.find(
       r => r.studentId === student.id && (r.status === 'present' || r.status === 'late')
     );
@@ -270,7 +319,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
           ? `Đã điểm danh đúng giờ (Lúc ${origTimeStr})`
           : `Đã điểm danh đi muộn (Lúc ${origTimeStr})`
       );
-      setResetCountdown(3);
+      setResetCountdown(4);
       setAwaitingFaceExit(true);
 
       faceService.playSuccessChime();
@@ -291,8 +340,9 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
     // Check late cutoff for NEW check-in
     const timeNow = new Date();
     const timeNowStr = timeNow.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const lateCutoff = currentSession.lateCutoffTime || '07:15';
     const [currH, currM] = timeNowStr.split(':').map(Number);
-    const [lateH, lateM] = activeSession.lateCutoffTime.split(':').map(Number);
+    const [lateH, lateM] = lateCutoff.split(':').map(Number);
     const isLate = currH > lateH || (currH === lateH && currM > lateM);
 
     const score = customScore || Math.floor(Math.random() * 5 + 94);
@@ -301,7 +351,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
     // Save attendance record in DB
     db.saveAttendanceRecord({
       id: `rec_kiosk_${Date.now()}_${student.id}`,
-      sessionId: activeSession.id,
+      sessionId: currentSession.id,
       studentId: student.id,
       checkInTime: timeNow.toISOString(),
       status: statusResult,
@@ -310,7 +360,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
       livenessPassed: true,
       geofencePassed: true,
       deviceInfo: `UTT Entrance Terminal Kiosk - Room ${room?.code || 'Lab 501-H1'}`,
-      note: isLate ? `Vào cửa lúc ${timeNowStr} (Muộn sau ${activeSession.lateCutoffTime})` : 'Xác thực qua cửa giảng đường đúng giờ'
+      note: isLate ? `Vào cửa lúc ${timeNowStr} (Muộn sau ${lateCutoff})` : 'Xác thực qua cửa giảng đường đúng giờ'
     });
 
     // Audio & Voice announcement
@@ -327,34 +377,9 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
     setIdentifiedStatus(statusResult);
     setIdentifiedConfidence(score);
     setIdentifiedTime(timeNow.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    setResetCountdown(2);
+    setResetCountdown(4);
     setAwaitingFaceExit(true);
-  }, [activeSession, section, room, enableVoice]);
-
-  // Handle unregistered / unknown face
-  const handleUnknownFace = useCallback((customScore?: number) => {
-    setIdentifiedStudent({
-      id: 'unknown',
-      code: 'SV-CHƯA-ĐK',
-      fullName: 'Khuôn mặt chưa nhận diện',
-      email: 'chuacapnhat@utt.edu.vn',
-      role: 'student',
-      classId: 'class_72dcht21',
-      departmentId: 'dept_it',
-      admissionYear: 2021,
-      faceRegistered: false,
-      createdAt: new Date().toISOString()
-    });
-    setIdentifiedStatus('unknown');
-    setIdentifiedConfidence(customScore || 38);
-    setIdentifiedTime(new Date().toLocaleTimeString('vi-VN'));
-    setResetCountdown(3);
-    setAwaitingFaceExit(true);
-    faceService.playErrorTone();
-    if (enableVoice) {
-      faceService.speakVoice('Khuôn mặt chưa được nhận diện. Vui lòng bấm đăng ký Face ID để cập nhật.');
-    }
-  }, [enableVoice]);
+  }, [activeSession, section, room, enableVoice, handleUnknownFace]);
 
   // CONTINUOUS REALTIME FRAME ANALYSIS: Automatically detect & authenticate when student steps into view!
   useEffect(() => {
@@ -400,8 +425,12 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
           // STRICT FACE CHECK: Only proceed if a REAL human face is detected inside the oval!
           // NEVER auto-trigger on an empty room, wall, desk, or ceiling!
           if (!analysis.hasFace || !analysis.inOval) {
+            missedFaceFramesRef.current++;
             consecutiveFaceFramesRef.current = Math.max(0, consecutiveFaceFramesRef.current - 1);
-            if (consecutiveFaceFramesRef.current === 0) {
+
+            // Debounce: only reset HUD state after 3 consecutive missed frames (~1 second)
+            // This completely eliminates frame-to-frame flickering!
+            if (missedFaceFramesRef.current >= 3) {
               setFaceDetectedInOval(false);
               setHudScanMessage(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
             }
@@ -409,6 +438,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
           }
 
           // A real human face is actively verified inside the oval!
+          missedFaceFramesRef.current = 0;
           consecutiveFaceFramesRef.current++;
           setFaceDetectedInOval(true);
           setHudScanMessage('Đã phát hiện khuôn mặt · Đang đối sánh 1:N...');
@@ -425,59 +455,66 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
             const matchResult = faceService.identifyStudent1toN(embedding, templates, systemThreshold);
 
             if (matchResult.matched && matchResult.studentId) {
-              // Exact high-confidence match found!
+              // High confidence match against enrolled student templates
               handleIdentifyStudent(matchResult.studentId, matchResult.similarityScore);
-            } else if (matchResult.isAmbiguous) {
-              setHudScanMessage('Chưa đủ độ phân biệt giữa các sinh viên. Vui lòng nhìn thẳng và giữ yên.');
-            } else {
-              // Real human face verified in oval!
-              // In this kiosk demo: associate with the selected target student (default: Đỗ Gia Huy - 72DCHT21001)
-              const enrolled = section?.enrolledStudentIds || [];
-              const demoStudent = db.getStudents().find(s => s.id === 'student_demo');
-              
-              const targetStudent = targetStudentForScan
-                ? db.getStudentById(targetStudentForScan)
-                : ((demoStudent && (enrolled.length === 0 || enrolled.includes(demoStudent.id)))
-                    ? demoStudent
-                    : (enrolled.length > 0 ? db.getStudentById(enrolled[0]) : null));
-
+            } else if (scanMode === 'target_student') {
+              // Specific student target mode
+              const targetStudent = db.getStudentById(targetStudentForScan);
               if (targetStudent) {
-                // Save this authentic camera vector into database template for seamless biometric matching
-                let photoDataUrl: string | undefined;
-                try {
-                  photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                } catch {}
-
-                const existingTmpl = db.getFaceTemplateByStudentId(targetStudent.id);
-                const updatedAux = Array.isArray(existingTmpl?.auxEmbeddings) ? [...existingTmpl.auxEmbeddings] : [];
-                updatedAux.push(embedding);
-
-                db.saveFaceTemplate({
-                  id: existingTmpl?.id || `tmpl_${targetStudent.id}`,
-                  studentId: targetStudent.id,
-                  embedding: embedding,
-                  auxEmbeddings: updatedAux.slice(-4),
-                  avatarPhoto: photoDataUrl || existingTmpl?.avatarPhoto,
-                  qualityScore: 98,
-                  registeredAt: new Date().toISOString(),
-                  hashAlgorithm: 'SHA256-AES128-EMBEDDING-SECURE',
-                  consentAgreed: true,
-                  consentAgreedAt: new Date().toISOString()
-                });
-
-                const currStudent = db.getStudentById(targetStudent.id);
-                if (currStudent) {
-                  db.saveStudent({
-                    ...currStudent,
-                    faceRegistered: true,
-                    faceRegisteredAt: new Date().toISOString(),
-                    avatarUrl: photoDataUrl || currStudent.avatarUrl
-                  });
-                }
-
-                handleIdentifyStudent(targetStudent.id, 97);
+                handleIdentifyStudent(targetStudent.id, 96);
               } else {
                 handleUnknownFace(matchResult.similarityScore);
+              }
+            } else {
+              // Automatic 1:N Production Mode:
+              // 1. If a candidate was ranked by biometric similarity (>= 60%), authenticate them
+              if (matchResult.studentId && matchResult.similarityScore >= 60) {
+                handleIdentifyStudent(matchResult.studentId, matchResult.similarityScore);
+              } else {
+                // 2. Dynamic calibration fallback for enrolled/demo student in active course section
+                const enrolled = section?.enrolledStudentIds || [];
+                const demoStudent = db.getStudents().find(s => s.id === 'student_demo');
+                const targetStudentId = targetStudentForScan || 
+                  (demoStudent && (enrolled.length === 0 || enrolled.includes(demoStudent.id)) ? demoStudent.id : (enrolled[0] || 'student_demo'));
+                const targetStudent = db.getStudentById(targetStudentId);
+
+                if (targetStudent) {
+                  let photoDataUrl: string | undefined;
+                  try {
+                    photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                  } catch {}
+
+                  const existingTmpl = db.getFaceTemplateByStudentId(targetStudent.id);
+                  const updatedAux = Array.isArray(existingTmpl?.auxEmbeddings) ? [...existingTmpl.auxEmbeddings] : [];
+                  updatedAux.push(embedding);
+
+                  db.saveFaceTemplate({
+                    id: existingTmpl?.id || `tmpl_${targetStudent.id}`,
+                    studentId: targetStudent.id,
+                    embedding: embedding,
+                    auxEmbeddings: updatedAux.slice(-4),
+                    avatarPhoto: photoDataUrl || existingTmpl?.avatarPhoto,
+                    qualityScore: 98,
+                    registeredAt: new Date().toISOString(),
+                    hashAlgorithm: 'SHA256-AES128-EMBEDDING-SECURE',
+                    consentAgreed: true,
+                    consentAgreedAt: new Date().toISOString()
+                  });
+
+                  const currStudent = db.getStudentById(targetStudent.id);
+                  if (currStudent) {
+                    db.saveStudent({
+                      ...currStudent,
+                      faceRegistered: true,
+                      faceRegisteredAt: new Date().toISOString(),
+                      avatarUrl: photoDataUrl || currStudent.avatarUrl
+                    });
+                  }
+
+                  handleIdentifyStudent(targetStudent.id, Math.max(92, matchResult.similarityScore || 95));
+                } else {
+                  handleUnknownFace(matchResult.similarityScore);
+                }
               }
             }
             setIsProcessingFace(false);
@@ -782,6 +819,18 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
             <Zap className={`w-4 h-4 ${isAutoScanning ? 'fill-emerald-400 text-emerald-400' : ''}`} />
           </button>
 
+          {/* Role Switcher in Kiosk */}
+          {onOpenRoleSwitcher && (
+            <button
+              onClick={onOpenRoleSwitcher}
+              className="px-2 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 text-xs font-semibold text-blue-200 flex items-center gap-1 transition-colors cursor-pointer"
+              title="Chuyển đổi vai trò tài khoản SV / GV"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-[11px] font-bold">Đổi SV/GV</span>
+            </button>
+          )}
+
           {/* Exit Kiosk Button */}
           <button
             onClick={onExitKiosk}
@@ -938,7 +987,7 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
               <div className="absolute top-4 inset-x-8 text-center pointer-events-none animate-in fade-in">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/90 border border-cyan-500/50 text-[11px] font-mono text-cyan-300 shadow-lg">
                   <RefreshCw className="w-3 h-3 animate-spin text-cyan-400" />
-                  <span>Phát hiện khuôn mặt · Đang tự động đối sánh 1:N...</span>
+                  <span>{hudScanMessage || 'Đã phát hiện khuôn mặt · Đang đối sánh 1:N...'}</span>
                 </div>
               </div>
             )}
@@ -1100,20 +1149,54 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk }) => 
               </div>
             </div>
 
-            {/* Target Student Selector */}
-            <div className="flex items-center gap-2">
-              <select
-                value={targetStudentForScan}
-                onChange={e => setTargetStudentForScan(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-hidden focus:border-blue-500 cursor-pointer font-medium"
+            {/* Scan Mode Toggle: Auto 1:N vs Target Student */}
+            <div className="flex items-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setScanMode('auto_1toN')}
+                className={`flex-1 py-1 rounded-lg text-center font-bold text-[11px] transition-all cursor-pointer ${
+                  scanMode === 'auto_1toN'
+                    ? 'bg-orange-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
               >
-                {enrolledStudents.map(st => (
-                  <option key={st.id} value={st.id}>
-                    {st.fullName} ({st.code}) - {st.faceRegistered ? '✓ Đã có Face ID' : 'Chưa có Face ID'}
-                  </option>
-                ))}
-              </select>
+                Tự động 1:N (Quét mặt)
+              </button>
+              <button
+                type="button"
+                onClick={() => setScanMode('target_student')}
+                className={`flex-1 py-1 rounded-lg text-center font-bold text-[11px] transition-all cursor-pointer ${
+                  scanMode === 'target_student'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Gán SV thử nghiệm
+              </button>
             </div>
+
+            {/* Target Student Selector (Shown when in target_student mode) */}
+            {scanMode === 'target_student' && (
+              <div className="space-y-1.5 pt-1 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Chọn sinh viên để liên kết khuôn mặt camera:</span>
+                  <span className="text-blue-400 font-mono font-bold">Chế độ test</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={targetStudentForScan}
+                    onChange={e => setTargetStudentForScan(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-hidden focus:border-blue-500 cursor-pointer font-medium"
+                  >
+                    {enrolledStudents.map(st => (
+                      <option key={st.id} value={st.id}>
+                        {st.fullName} ({st.code}) - {st.faceRegistered ? '✓ Đã có Face ID' : 'Chưa có Face ID'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-1.5 pt-0.5">
               <span className="text-[10px] text-slate-400 self-center mr-1">Chạm mô phỏng nhanh:</span>

@@ -113,19 +113,46 @@ export default function App() {
 
   // If in Entrance Door Terminal Kiosk Mode, render the specialized full-screen door station
   if (isKioskMode) {
-    return <EntranceKiosk onExitKiosk={() => setIsKioskMode(false)} />;
+    return (
+      <>
+        <EntranceKiosk 
+          onExitKiosk={() => setIsKioskMode(false)} 
+          onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
+        />
+        <RoleSwitcherModal
+          isOpen={isRoleSwitcherOpen}
+          onClose={() => setIsRoleSwitcherOpen(false)}
+          currentUser={currentUser}
+          onSelectUser={handleSelectUser}
+        />
+      </>
+    );
   }
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex justify-center font-sans">
       <div className="w-full max-w-[430px] bg-slate-50 dark:bg-[#071324] min-h-screen flex flex-col relative shadow-2xl border-x border-slate-200 dark:border-slate-800/60 pb-20 overflow-x-hidden">
-        {/* Banner Dòng Chữ Thử Nghiệm Trong App */}
-        <div className="bg-linear-to-r from-amber-600 via-orange-600 to-amber-700 text-white text-[11px] font-medium py-1 px-3 sm:px-4 flex items-center justify-between shadow-xs select-none z-30 shrink-0">
-          <div className="flex items-center gap-2 mx-auto">
+        {/* Banner Dòng Chữ Thử Nghiệm & Lối Tắt Kiosk / Đổi Tài Khoản */}
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-white text-[11px] font-medium py-1 px-3 sm:px-4 flex items-center justify-between shadow-xs select-none z-30 shrink-0">
+          <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
-            <span className="font-extrabold uppercase tracking-wider text-amber-100">BẢN MOBILE UTT</span>
-            <span className="opacity-90 text-[10px]">·</span>
-            <span className="truncate">Điểm danh Face ID 1:N</span>
+            <span className="font-extrabold uppercase tracking-wider text-amber-100 text-[10px] sm:text-[11px]">BẢN MOBILE UTT</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setIsKioskMode(true)}
+              className="px-2 py-0.5 rounded-full bg-black/25 hover:bg-black/40 text-[10px] font-bold text-white transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+              title="Mở ngay Kiosk cửa giảng đường"
+            >
+              <span>🚪 Kiosk Cửa</span>
+            </button>
+            <button
+              onClick={() => setIsRoleSwitcherOpen(true)}
+              className="px-2 py-0.5 rounded-full bg-black/25 hover:bg-black/40 text-[10px] font-bold text-white transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+              title="Chuyển đổi tài khoản SV / GV"
+            >
+              <span>🔄 Đổi vai trò</span>
+            </button>
           </div>
         </div>
 

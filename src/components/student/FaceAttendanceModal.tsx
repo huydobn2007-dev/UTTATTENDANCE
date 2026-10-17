@@ -60,6 +60,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timerRef = useRef<number | null>(null);
+  const missedFramesRef = useRef<number>(0);
 
   // Load active session and course details
   useEffect(() => {
@@ -201,17 +202,23 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
         try {
           const analysis = faceService.analyzeFrame(canvas, video);
           if (analysis.isHandDetected) {
+            missedFramesRef.current = 5;
             setIsRealFaceDetected(false);
             setFaceFeedback('Phát hiện bàn tay/vật cản trước camera!');
             return;
           }
 
           if (analysis.hasFace && analysis.inOval) {
+            missedFramesRef.current = 0;
             setIsRealFaceDetected(true);
             setFaceFeedback('Đã nhận diện khuôn mặt · Giữ thẳng vị trí');
           } else {
-            setIsRealFaceDetected(false);
-            setFaceFeedback(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
+            missedFramesRef.current++;
+            // Debounce: only flip to not detected after 3 consecutive missed frames (~900ms)
+            if (missedFramesRef.current >= 3) {
+              setIsRealFaceDetected(false);
+              setFaceFeedback(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
+            }
           }
         } catch {}
       }
@@ -229,24 +236,19 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
 
     let currentProgress = 15;
     const interval = window.setInterval(() => {
-      // Actively verify that a real face is still inside the oval (not pointed at a corner or empty room)
-      let faceActiveInOval = isRealFaceDetected;
-      if (canvasRef.current && videoRef.current && cameraPermission === 'granted') {
-        try {
-          const check = faceService.analyzeFrame(canvasRef.current, videoRef.current);
-          faceActiveInOval = check.hasFace && check.inOval && !check.isHandDetected;
-          setIsRealFaceDetected(faceActiveInOval);
-        } catch {}
+      // Steady monotonic progress advancing while face is verified:
+      if (!isRealFaceDetected && cameraPermission === 'granted') {
+        missedFramesRef.current++;
+        // Allow brief 1-second grace period (2 ticks) before pausing
+        if (missedFramesRef.current > 3) {
+          setChallengeInstruction('Vui lòng nhìn thẳng vào camera...');
+          return;
+        }
+      } else {
+        missedFramesRef.current = 0;
       }
 
-      // If user moved camera away to a corner or desk, PAUSE and WARN!
-      if (!faceActiveInOval && cameraPermission === 'granted') {
-        setChallengeInstruction('Không phát hiện khuôn mặt! Vui lòng hướng camera vào mặt bạn');
-        setProgress(prev => Math.max(10, prev - 8));
-        return;
-      }
-
-      currentProgress += 15;
+      currentProgress += 18;
       setProgress(Math.min(currentProgress, 95));
 
       if (currentProgress >= 30 && currentProgress < 65) {
@@ -261,30 +263,36 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
         clearInterval(interval);
         finalizeAttendance();
       }
-    }, 450);
+    }, 400);
 
     timerRef.current = interval;
   }, [status, isRealFaceDetected, cameraPermission]);
 
-  // Auto-start verification when face is steady and camera is ready
+  // Auto-start verification only when a real face is detected in the oval
   useEffect(() => {
-    if (status !== 'ready') return;
+    if (status !== 'ready' || !isRealFaceDetected) return;
     const autoTimer = setTimeout(() => {
-      if (status === 'ready') {
+      if (status === 'ready' && isRealFaceDetected) {
         handleStartVerification();
       }
     }, 1200);
     return () => clearTimeout(autoTimer);
-  }, [status, cameraPermission, handleStartVerification]);
+  }, [status, cameraPermission, isRealFaceDetected, handleStartVerification]);
 
   const finalizeAttendance = () => {
-    if (!activeSession) return;
+    const currentSession = activeSession || db.getActiveSession() || db.getSessions()[0];
+    if (!currentSession) {
+      setStatus('failed');
+      setErrorMessage('Không tìm thấy phiên điểm danh hợp lệ đang mở.');
+      return;
+    }
 
     // Check late cutoff
     const now = new Date();
     const timeNowStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const lateCutoff = currentSession.lateCutoffTime || '07:15';
     const [currH, currM] = timeNowStr.split(':').map(Number);
-    const [lateH, lateM] = activeSession.lateCutoffTime.split(':').map(Number);
+    const [lateH, lateM] = lateCutoff.split(':').map(Number);
     const isLateStudent = (currH > lateH) || (currH === lateH && currM > lateM);
 
     // Calculate real biometric similarity score against registered FaceTemplate
@@ -408,7 +416,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
 
     // Check if student has ALREADY checked in for this active session
     const existingRec = db.getAttendanceRecords().find(
-      r => r.sessionId === activeSession.id && r.studentId === student.id && (r.status === 'present' || r.status === 'late')
+      r => r.sessionId === currentSession.id && r.studentId === student.id && (r.status === 'present' || r.status === 'late')
     );
 
     if (existingRec) {
@@ -438,7 +446,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
     // Record in DB
     db.saveAttendanceRecord({
       id: `rec_${Date.now()}_${student.id}`,
-      sessionId: activeSession.id,
+      sessionId: currentSession.id,
       studentId: student.id,
       checkInTime: now.toISOString(),
       status: isLateStudent ? 'late' : 'present',
@@ -447,7 +455,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
       livenessPassed: true,
       geofencePassed: true,
       deviceInfo: navigator.userAgent.includes('Mobile') ? 'Mobile Browser' : 'Desktop Workstation',
-      note: isLateStudent ? `Điểm danh lúc ${timeNowStr} (Mốc tính muộn: ${activeSession.lateCutoffTime})` : 'Điểm danh đúng giờ'
+      note: isLateStudent ? `Điểm danh lúc ${timeNowStr} (Mốc tính muộn: ${lateCutoff})` : 'Điểm danh đúng giờ'
     });
 
     // Play pleasant chime
