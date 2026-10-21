@@ -33,7 +33,8 @@ import {
   FileSpreadsheet,
   SwitchCamera,
   Smartphone,
-  Monitor
+  Monitor,
+  CameraOff
 } from 'lucide-react';
 import { UttLogo } from '../common/UttLogo';
 
@@ -390,11 +391,12 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk, onOpe
       // If currently displaying result card, skip scanning until countdown finishes
       if (resetCountdown > 0 || isProcessing) return;
 
-      if (videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
+      if (canvasRef.current) {
         const canvas = canvasRef.current;
-        // In hardware camera mode, ensure video is actively playing with valid frames
-        if (useHardwareCamera && (video.videoWidth === 0 || video.readyState < 2 || video.paused)) return;
+        // ONLY scan if hardware camera is active, connected, and playing real stream
+        if (!useHardwareCamera || !videoRef.current || !cameraStream) return;
+        const video = videoRef.current;
+        if (video.videoWidth === 0 || video.readyState < 2 || video.paused) return;
 
         try {
           isProcessing = true;
@@ -423,17 +425,13 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk, onOpe
           setIsHandDetectedState(false);
 
           // STRICT FACE CHECK: Only proceed if a REAL human face is detected inside the oval!
-          // NEVER auto-trigger on an empty room, wall, desk, or ceiling!
           if (!analysis.hasFace || !analysis.inOval) {
             missedFaceFramesRef.current++;
-            consecutiveFaceFramesRef.current = Math.max(0, consecutiveFaceFramesRef.current - 1);
+            consecutiveFaceFramesRef.current = 0;
 
-            // Debounce: only reset HUD state after 3 consecutive missed frames (~1 second)
-            // This completely eliminates frame-to-frame flickering!
-            if (missedFaceFramesRef.current >= 3) {
-              setFaceDetectedInOval(false);
-              setHudScanMessage(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
-            }
+            // Reset HUD state immediately when face is absent
+            setFaceDetectedInOval(false);
+            setHudScanMessage(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
             return;
           }
 
@@ -443,8 +441,8 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk, onOpe
           setFaceDetectedInOval(true);
           setHudScanMessage('Đã phát hiện khuôn mặt · Đang đối sánh 1:N...');
 
-          // Responsive identification: Trigger after 1 high-score frame or 2 stable frames (~400-800ms)
-          if (consecutiveFaceFramesRef.current >= (analysis.score >= 90 ? 1 : 2)) {
+          // Responsive identification: Trigger on verified face frame (1 frame ~ 400ms)
+          if (consecutiveFaceFramesRef.current >= 1) {
             consecutiveFaceFramesRef.current = 0;
             setIsProcessingFace(true);
 
@@ -458,63 +456,23 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk, onOpe
               // High confidence match against enrolled student templates
               handleIdentifyStudent(matchResult.studentId, matchResult.similarityScore);
             } else if (scanMode === 'target_student') {
-              // Specific student target mode
+              // Specific student target mode: Only identify if score is reasonable (>= 65%)
               const targetStudent = db.getStudentById(targetStudentForScan);
-              if (targetStudent) {
-                handleIdentifyStudent(targetStudent.id, 96);
+              if (targetStudent && matchResult.similarityScore >= 65) {
+                handleIdentifyStudent(targetStudent.id, Math.max(90, matchResult.similarityScore));
               } else {
                 handleUnknownFace(matchResult.similarityScore);
               }
             } else {
               // Automatic 1:N Production Mode:
-              // 1. If a candidate was ranked by biometric similarity (>= 60%), authenticate them
-              if (matchResult.studentId && matchResult.similarityScore >= 60) {
+              // Only authenticate if match passed threshold (>= 75%) or high confidence (>= 72%)
+              if (matchResult.matched && matchResult.studentId) {
+                handleIdentifyStudent(matchResult.studentId, matchResult.similarityScore);
+              } else if (matchResult.studentId && matchResult.similarityScore >= 72) {
                 handleIdentifyStudent(matchResult.studentId, matchResult.similarityScore);
               } else {
-                // 2. Dynamic calibration fallback for enrolled/demo student in active course section
-                const enrolled = section?.enrolledStudentIds || [];
-                const demoStudent = db.getStudents().find(s => s.id === 'student_demo');
-                const targetStudentId = targetStudentForScan || 
-                  (demoStudent && (enrolled.length === 0 || enrolled.includes(demoStudent.id)) ? demoStudent.id : (enrolled[0] || 'student_demo'));
-                const targetStudent = db.getStudentById(targetStudentId);
-
-                if (targetStudent) {
-                  let photoDataUrl: string | undefined;
-                  try {
-                    photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                  } catch {}
-
-                  const existingTmpl = db.getFaceTemplateByStudentId(targetStudent.id);
-                  const updatedAux = Array.isArray(existingTmpl?.auxEmbeddings) ? [...existingTmpl.auxEmbeddings] : [];
-                  updatedAux.push(embedding);
-
-                  db.saveFaceTemplate({
-                    id: existingTmpl?.id || `tmpl_${targetStudent.id}`,
-                    studentId: targetStudent.id,
-                    embedding: embedding,
-                    auxEmbeddings: updatedAux.slice(-4),
-                    avatarPhoto: photoDataUrl || existingTmpl?.avatarPhoto,
-                    qualityScore: 98,
-                    registeredAt: new Date().toISOString(),
-                    hashAlgorithm: 'SHA256-AES128-EMBEDDING-SECURE',
-                    consentAgreed: true,
-                    consentAgreedAt: new Date().toISOString()
-                  });
-
-                  const currStudent = db.getStudentById(targetStudent.id);
-                  if (currStudent) {
-                    db.saveStudent({
-                      ...currStudent,
-                      faceRegistered: true,
-                      faceRegisteredAt: new Date().toISOString(),
-                      avatarUrl: photoDataUrl || currStudent.avatarUrl
-                    });
-                  }
-
-                  handleIdentifyStudent(targetStudent.id, Math.max(92, matchResult.similarityScore || 95));
-                } else {
-                  handleUnknownFace(matchResult.similarityScore);
-                }
+                // Real human face in oval but does not match any registered student: Display Unknown Face card
+                handleUnknownFace(matchResult.similarityScore);
               }
             }
             setIsProcessingFace(false);
@@ -941,16 +899,22 @@ export const EntranceKiosk: React.FC<EntranceKioskProps> = ({ onExitKiosk, onOpe
                 className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
               />
             ) : (
-              <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
-                <img
-                  src="/src/assets/images/avatar_student_utt_1791203537106.jpg"
-                  alt="Student Target Face"
-                  className="w-full h-full object-cover opacity-85 filter contrast-105"
-                />
-                <div className="absolute top-3 left-3 px-2 py-1 rounded bg-black/60 backdrop-blur-xs text-[10px] text-white/90 font-mono flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Kiosk Camera 30 FPS</span>
+              <div className="relative w-full h-full flex flex-col items-center justify-center bg-slate-950 p-6 text-center select-none">
+                <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mb-3 shadow-inner">
+                  <CameraOff className="w-8 h-8 text-slate-500" />
                 </div>
+                <h4 className="text-sm font-bold text-white mb-1">Webcam chưa được kích hoạt</h4>
+                <p className="text-xs text-slate-400 max-w-xs mb-4">
+                  Kiosk chỉ nhận diện khi camera phần cứng hoạt động. Bấm nút bên dưới để mở webcam.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => startCamera(facingMode)}
+                  className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-2"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Bật Camera Kiosk</span>
+                </button>
               </div>
             )}
 

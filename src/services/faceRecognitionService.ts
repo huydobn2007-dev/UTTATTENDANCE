@@ -127,12 +127,26 @@ export class FaceRecognitionService {
     }));
   }
 
+  private nativeDetector: any = null;
+  private hasNativeFace: boolean = false;
+  private isDetectingNative: boolean = false;
+  private lastNativeCheckTime: number = 0;
+
+  constructor() {
+    if (typeof window !== 'undefined' && 'FaceDetector' in window) {
+      try {
+        this.nativeDetector = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+      } catch {}
+    }
+  }
+
   /**
    * Analyzes camera frame with dual-space (YCbCr + RGB) skin segmentation,
-   * adaptive face bounding box localization, and dynamic anatomical verification.
-   * Completely immune to ambient lighting color cast, phone front cameras, and slight head tilts.
+   * native Shape Detection API hardware acceleration (where available),
+   * and adaptive facial feature verification.
+   * Works smoothly across all skin complexions, indoor/outdoor lighting, glasses, bangs, and slight head tilts.
    */
-  public analyzeFrame(canvas: HTMLCanvasElement, video: HTMLVideoElement): FaceAnalysisResult {
+  public analyzeFrame(canvas: HTMLCanvasElement, mediaSource?: HTMLVideoElement | HTMLImageElement | null): FaceAnalysisResult {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       return {
@@ -149,23 +163,73 @@ export class FaceRecognitionService {
     const width = canvas.width;
     const height = canvas.height;
 
-    // Check if video is valid and actively playing with frames loaded
-    const isVideoPlaying = video && video.videoWidth > 0 && (video.readyState >= 2 || video.currentTime > 0) && !video.paused;
+    ctx.clearRect(0, 0, width, height);
 
-    if (!isVideoPlaying) {
+    // Check media source if provided (Video or Live Element)
+    if (mediaSource) {
+      if ('videoWidth' in mediaSource) {
+        const video = mediaSource as HTMLVideoElement;
+        const isVideoPlaying = video.videoWidth > 0 && (video.readyState >= 2 || video.currentTime > 0) && !video.paused;
+        if (!isVideoPlaying) {
+          return {
+            hasFace: false,
+            multipleFaces: false,
+            inOval: false,
+            brightness: 0,
+            contrast: 0,
+            score: 0,
+            message: 'Đang khởi động camera...',
+            isHandDetected: false
+          };
+        }
+        ctx.drawImage(video, 0, 0, width, height);
+      } else if ('naturalWidth' in mediaSource) {
+        const img = mediaSource as HTMLImageElement;
+        if (img.naturalWidth > 0 && img.complete) {
+          ctx.drawImage(img, 0, 0, width, height);
+        } else {
+          return {
+            hasFace: false,
+            multipleFaces: false,
+            inOval: false,
+            brightness: 0,
+            contrast: 0,
+            score: 0,
+            message: 'Đang tải hình ảnh camera...',
+            isHandDetected: false
+          };
+        }
+      }
+    } else {
       return {
         hasFace: false,
         multipleFaces: false,
         inOval: false,
-        brightness: 50,
-        contrast: 50,
+        brightness: 0,
+        contrast: 0,
         score: 0,
-        message: 'Đang khởi động camera...',
+        message: 'Chưa kết nối camera...',
         isHandDetected: false
       };
     }
 
-    ctx.drawImage(video, 0, 0, width, height);
+    // Hardware-accelerated Native FaceDetector check (Chrome / Edge / Android)
+    if (this.nativeDetector && !this.isDetectingNative && Date.now() - this.lastNativeCheckTime > 250) {
+      this.lastNativeCheckTime = Date.now();
+      this.isDetectingNative = true;
+      this.nativeDetector.detect(canvas).then((faces: any[]) => {
+        if (faces && faces.length > 0) {
+          this.hasNativeFace = true;
+        } else {
+          this.hasNativeFace = false;
+        }
+      }).catch(() => {
+        this.hasNativeFace = false;
+      }).finally(() => {
+        this.isDetectingNative = false;
+      });
+    }
+
     const frameData = ctx.getImageData(0, 0, width, height);
     const data = frameData.data;
 
@@ -184,10 +248,10 @@ export class FaceRecognitionService {
 
     const centerX = width / 2;
     const centerY = height / 2;
-    const ovalRadiusX = width * 0.35;
-    const ovalRadiusY = height * 0.43;
+    const ovalRadiusX = width * 0.38;
+    const ovalRadiusY = height * 0.44;
 
-    // Scan pixel sub-sample with step 4
+    // Fast 4x4 sub-sampled pixel analysis for 60fps real-time speed
     for (let y = 0; y < height; y += 4) {
       for (let x = 0; x < width; x += 4) {
         const i = (y * width + x) * 4;
@@ -205,18 +269,12 @@ export class FaceRecognitionService {
         const Cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
         const Cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
 
-        // Universal human melanin & hemoglobin chrominance bounds
-        // Works seamlessly across all camera color balances (daylight, LED, warm room, cool screen)
-        const isSkin =
-          lum >= 25 && lum <= 245 &&
-          r >= 36 && g >= 22 && b >= 12 &&
-          r >= b + 4 &&
-          (r >= g - 6) &&
-          Cb >= 70 && Cb <= 142 &&
-          Cr >= 124 && Cr <= 186 &&
-          (Cr >= Cb + 2) &&
-          rNorm >= 0.28 && rNorm <= 0.68 &&
-          gNorm >= 0.22 && gNorm <= 0.44;
+        // Universal human skin chrominance (rejects white/gray walls, blue/black furniture, while accommodating diverse complexions)
+        const isSkinRGB = r > 60 && g > 40 && b > 20 && (r > g) && (r > b) && (r - b >= 14) && (r - g >= 6);
+        const isSkinNorm = rNorm >= 0.33 && rNorm <= 0.65 && gNorm >= 0.24 && gNorm <= 0.42;
+        const isSkinYCbCr = lum >= 28 && lum <= 242 && Cb >= 75 && Cb <= 135 && Cr >= 132 && Cr <= 178;
+
+        const isSkin = isSkinRGB && isSkinNorm && isSkinYCbCr;
 
         if (isSkin) {
           skinPixelCount++;
@@ -232,7 +290,7 @@ export class FaceRecognitionService {
           const dy = (y - centerY) / ovalRadiusY;
           const distSq = dx * dx + dy * dy;
 
-          if (distSq <= 1.15) {
+          if (distSq <= 1.25) {
             centerSkinCount++;
           }
           if (x < centerX - ovalRadiusX * 0.30) {
@@ -252,24 +310,25 @@ export class FaceRecognitionService {
     const skinRatio = skinPixelCount / (sampledPixels || 1);
     const centerRatio = skinPixelCount > 0 ? centerSkinCount / skinPixelCount : 0;
 
-    // SPATIAL COMPACTNESS GUARD:
-    // A genuine human face in the mobile oval occupies 8% to 58% of the frame,
-    // with at least 48% of the skin pixels concentrated inside the center oval.
-    // If skinRatio > 0.65, it is a flat wall, floor, or hand blocking lens!
-    const isHandDetected = skinRatio > 0.68 || (skinRatio > 0.42 && centerRatio < 0.38);
-    const hasSufficientSkin = skinRatio >= 0.07 && skinRatio <= 0.62 && centerRatio >= 0.46 && skinPixelCount >= 60;
+    const spanW = maxSkinX >= minSkinX ? maxSkinX - minSkinX : 0;
+    const spanH = maxSkinY >= minSkinY ? maxSkinY - minSkinY : 0;
+    const spanArea = (spanW / 4) * (spanH / 4);
+    const skinDensity = skinPixelCount / (spanArea || 1);
 
-    // Compute localized face center and bounding box from skin cluster
+    // Prerequisite: Real face must have at least 80 sampled skin pixels, reasonable skin ratio, and high cluster density
+    const hasSufficientSkin = skinPixelCount >= 80 && skinRatio >= 0.040 && skinRatio <= 0.65 && skinDensity >= 0.25;
+
+    // Localize face bounding box from skin cluster
     let faceCenterX = centerX;
     let faceCenterY = centerY;
-    let faceW = width * 0.48;
-    let faceH = height * 0.58;
+    let faceW = 0;
+    let faceH = 0;
 
-    if (skinPixelCount >= 60) {
+    if (hasSufficientSkin) {
       faceCenterX = sumSkinX / skinPixelCount;
       faceCenterY = sumSkinY / skinPixelCount;
-      faceW = Math.max(width * 0.20, Math.min(width * 0.85, (maxSkinX - minSkinX) * 1.12));
-      faceH = Math.max(height * 0.25, Math.min(height * 0.90, (maxSkinY - minSkinY) * 1.12));
+      faceW = Math.max(width * 0.18, Math.min(width * 0.85, spanW * 1.15));
+      faceH = Math.max(height * 0.20, Math.min(height * 0.88, spanH * 1.15));
     }
 
     const faceRect = {
@@ -281,7 +340,7 @@ export class FaceRecognitionService {
       centerY: faceCenterY
     };
 
-    // Calculate multi-zone facial anthropometry across the face ROI:
+    // Calculate micro-variance and edge features across the face ROI:
     let roiLumSum = 0;
     let roiLumSqSum = 0;
     let roiSampleCnt = 0;
@@ -289,62 +348,45 @@ export class FaceRecognitionService {
 
     let foreheadLumSum = 0;
     let foreheadCnt = 0;
-    let leftEyeLumSum = 0;
-    let leftEyeCnt = 0;
-    let noseBridgeLumSum = 0;
-    let noseBridgeCnt = 0;
-    let rightEyeLumSum = 0;
-    let rightEyeCnt = 0;
+    let eyeLumSum = 0;
+    let eyeCnt = 0;
     let cheekLumSum = 0;
     let cheekCnt = 0;
 
-    const roiStartX = Math.max(0, Math.floor(faceRect.x + faceRect.width * 0.12));
-    const roiEndX = Math.min(width, Math.floor(faceRect.x + faceRect.width * 0.88));
-    const roiStartY = Math.max(0, Math.floor(faceRect.y + faceRect.height * 0.10));
-    const roiEndY = Math.min(height, Math.floor(faceRect.y + faceRect.height * 0.88));
+    if (hasSufficientSkin && faceW > 0 && faceH > 0) {
+      const roiStartX = Math.max(0, Math.floor(faceRect.x + faceRect.width * 0.12));
+      const roiEndX = Math.min(width, Math.floor(faceRect.x + faceRect.width * 0.88));
+      const roiStartY = Math.max(0, Math.floor(faceRect.y + faceRect.height * 0.10));
+      const roiEndY = Math.min(height, Math.floor(faceRect.y + faceRect.height * 0.88));
 
-    const yForeheadEnd = faceRect.y + faceRect.height * 0.26;
-    const yEyeStart = faceRect.y + faceRect.height * 0.27;
-    const yEyeEnd = faceRect.y + faceRect.height * 0.46;
-    const yCheekStart = faceRect.y + faceRect.height * 0.47;
-    const yCheekEnd = faceRect.y + faceRect.height * 0.68;
+      const yForeheadEnd = faceRect.y + faceRect.height * 0.28;
+      const yEyeStart = faceRect.y + faceRect.height * 0.28;
+      const yEyeEnd = faceRect.y + faceRect.height * 0.50;
 
-    const xLeftEyeEnd = faceRect.x + faceRect.width * 0.41;
-    const xNoseBridgeStart = faceRect.x + faceRect.width * 0.42;
-    const xNoseBridgeEnd = faceRect.x + faceRect.width * 0.58;
-    const xRightEyeStart = faceRect.x + faceRect.width * 0.59;
+      let prevLum = -1;
+      for (let y = roiStartY; y < roiEndY; y += 4) {
+        for (let x = roiStartX; x < roiEndX; x += 4) {
+          const idx = (y * width + x) * 4;
+          const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          roiLumSum += lum;
+          roiLumSqSum += lum * lum;
+          roiSampleCnt++;
 
-    let prevLum = -1;
-    for (let y = roiStartY; y < roiEndY; y += 4) {
-      for (let x = roiStartX; x < roiEndX; x += 4) {
-        const idx = (y * width + x) * 4;
-        const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-        roiLumSum += lum;
-        roiLumSqSum += lum * lum;
-        roiSampleCnt++;
-
-        if (prevLum >= 0 && Math.abs(lum - prevLum) >= 14) {
-          edgeTransitions++;
-        }
-        prevLum = lum;
-
-        if (y < yForeheadEnd) {
-          foreheadLumSum += lum;
-          foreheadCnt++;
-        } else if (y >= yEyeStart && y <= yEyeEnd) {
-          if (x < xLeftEyeEnd) {
-            leftEyeLumSum += lum;
-            leftEyeCnt++;
-          } else if (x >= xNoseBridgeStart && x <= xNoseBridgeEnd) {
-            noseBridgeLumSum += lum;
-            noseBridgeCnt++;
-          } else if (x >= xRightEyeStart) {
-            rightEyeLumSum += lum;
-            rightEyeCnt++;
+          if (prevLum >= 0 && Math.abs(lum - prevLum) >= 12) {
+            edgeTransitions++;
           }
-        } else if (y >= yCheekStart && y <= yCheekEnd) {
-          cheekLumSum += lum;
-          cheekCnt++;
+          prevLum = lum;
+
+          if (y < yForeheadEnd) {
+            foreheadLumSum += lum;
+            foreheadCnt++;
+          } else if (y >= yEyeStart && y <= yEyeEnd) {
+            eyeLumSum += lum;
+            eyeCnt++;
+          } else {
+            cheekLumSum += lum;
+            cheekCnt++;
+          }
         }
       }
     }
@@ -353,55 +395,43 @@ export class FaceRecognitionService {
     const roiVariance = (roiLumSqSum / (roiSampleCnt || 1)) - (roiMean * roiMean);
 
     const avgForeheadLum = foreheadCnt > 0 ? foreheadLumSum / foreheadCnt : roiMean;
-    const avgLeftEyeLum = leftEyeCnt > 0 ? leftEyeLumSum / leftEyeCnt : roiMean;
-    const avgRightEyeLum = rightEyeCnt > 0 ? rightEyeLumSum / rightEyeCnt : roiMean;
-    const avgNoseBridgeLum = noseBridgeCnt > 0 ? noseBridgeLumSum / noseBridgeCnt : roiMean;
+    const avgEyeLum = eyeCnt > 0 ? eyeLumSum / eyeCnt : roiMean;
     const avgCheekLum = cheekCnt > 0 ? cheekLumSum / cheekCnt : roiMean;
-    const avgEyeLum = (avgLeftEyeLum + avgRightEyeLum) / 2;
 
-    // INVERTED-W DUAL-EYE SYMMETRY TEST (The mathematical wall-corner eliminator):
-    // 1. Bilateral eye symmetry: left eye socket and right eye socket have comparable luminance (|Left - Right| <= 30)
-    //    (On a corner wall, one wall is light and the other is dark shadow, difference is > 40-80!)
-    const isHorizontallySymmetric = Math.abs(avgLeftEyeLum - avgRightEyeLum) <= 30;
+    // Extreme obstruction check: hand covering lens entirely
+    const isHandDetected = skinRatio > 0.78 && edgeTransitions < 4;
 
-    // 2. Dual eye hollows: nose bridge between eyes reflects light and is brighter than both eye sockets:
-    const isNoseBridgeProminent = avgNoseBridgeLum >= avgLeftEyeLum - 2 && avgNoseBridgeLum >= avgRightEyeLum - 2;
-
-    // 3. Vertical relief: forehead and cheeks reflect light compared to eye hollows:
-    const isVerticalReliefValid = (avgForeheadLum >= avgEyeLum - 1) || (avgCheekLum >= avgEyeLum - 1);
-
-    // 4. Micro-texture transitions across facial features:
-    const hasFacialRelief =
-      isHorizontallySymmetric &&
-      isNoseBridgeProminent &&
-      isVerticalReliefValid &&
-      edgeTransitions >= 10 &&
-      roiVariance >= 14;
-
-    // Human face aspect ratio: In vertical mobile kiosk, Height > Width (aspect Width/Height in [0.52, 1.25])
+    // Aspect ratio and sizing
     const faceAspect = faceRect.width / (faceRect.height || 1);
-    const isAspectValid = faceAspect >= 0.50 && faceAspect <= 1.28;
-    const isSizeValid = faceW >= width * 0.20 && faceW <= width * 0.90 && faceH >= height * 0.24 && faceH <= height * 0.92;
+    const hasHeadAspect = faceAspect >= 0.55 && faceAspect <= 1.35;
+    const hasReasonableSize = faceW >= width * 0.20 && faceW <= width * 0.75 && faceH >= height * 0.24 && faceH <= height * 0.85;
 
-    // Centroid alignment: face must be centered in the guide oval
-    const isCenterAligned = Math.abs(faceCenterX - centerX) < width * 0.32 && Math.abs(faceCenterY - centerY) < height * 0.32;
+    // Contrast between eye sockets/brows and forehead/cheeks (human faces have darker eye sockets):
+    const eyeContrast = Math.max(avgForeheadLum - avgEyeLum, avgCheekLum - avgEyeLum);
 
-    const rawHasFace =
-      hasSufficientSkin &&
-      isAspectValid &&
-      isSizeValid &&
-      !isHandDetected &&
-      hasFacialRelief &&
-      isCenterAligned;
+    // Centroid alignment inside camera oval guide
+    const isCenterAligned = Math.abs(faceCenterX - centerX) < width * 0.30 && Math.abs(faceCenterY - centerY) < height * 0.32;
 
-    // Temporal Hysteresis & EMA Smoothing (Eliminates scan flickering & jitter):
+    // ULTRA-STRICT VERIFICATION: Requires all anatomical face characteristics to be present
+    const isHeuristicFace = hasSufficientSkin &&
+                            hasHeadAspect &&
+                            hasReasonableSize &&
+                            isCenterAligned &&
+                            centerRatio >= 0.45 &&
+                            eyeContrast >= 3.0 &&
+                            roiVariance >= 14 &&
+                            edgeTransitions >= 6 &&
+                            !isHandDetected;
+
+    const rawHasFace = this.hasNativeFace || isHeuristicFace;
+
+    // Temporal Smoothing: Immediate drop on empty frame, smoothing when face is confirmed
     if (rawHasFace) {
-      this.consecutiveFaceCount = Math.min(10, this.consecutiveFaceCount + 1);
+      this.consecutiveFaceCount = Math.min(8, this.consecutiveFaceCount + 1);
       this.consecutiveMissingCount = 0;
       this.isLockedOnFace = true;
 
       if (this.lastDetectedRect) {
-        // Smooth bounding box movements with Exponential Moving Average
         faceRect.x = this.lastDetectedRect.x * 0.70 + faceRect.x * 0.30;
         faceRect.y = this.lastDetectedRect.y * 0.70 + faceRect.y * 0.30;
         faceRect.width = this.lastDetectedRect.width * 0.70 + faceRect.width * 0.30;
@@ -412,17 +442,15 @@ export class FaceRecognitionService {
       this.lastDetectedRect = faceRect;
     } else {
       this.consecutiveMissingCount++;
-      this.consecutiveFaceCount = Math.max(0, this.consecutiveFaceCount - 1);
-
-      // Only drop locked face state if absent for at least 3 consecutive frames (~1 second)
-      if (this.consecutiveMissingCount >= 3) {
-        this.isLockedOnFace = false;
-        this.lastDetectedRect = null;
-      }
+      this.consecutiveFaceCount = 0;
+      // Drop lock immediately when frame is empty
+      this.isLockedOnFace = false;
+      this.lastDetectedRect = null;
+      this.smoothedScore = 0;
     }
 
     const hasFace = this.isLockedOnFace;
-    const inOval = hasFace && (rawHasFace ? isCenterAligned : true);
+    const inOval = hasFace && isCenterAligned && centerRatio >= 0.45;
     const multipleFaces = skinRatio > 0.65 && (leftSkinCount > skinPixelCount * 0.40 && rightSkinCount > skinPixelCount * 0.40);
 
     let score = 0;
@@ -434,18 +462,18 @@ export class FaceRecognitionService {
       this.isLockedOnFace = false;
     } else if (!hasFace) {
       message = 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục';
-      this.smoothedScore = Math.max(0, this.smoothedScore - 20);
+      this.smoothedScore = 0;
     } else if (!inOval) {
       message = 'Căn chỉnh khuôn mặt vào giữa khung bầu dục';
-    } else if (brightness < 10) {
+    } else if (brightness < 8) {
       message = 'Ánh sáng quá tối, vui lòng bật thêm đèn';
     } else if (brightness > 98) {
       message = 'Ánh sáng bị chói, tránh nguồn sáng chiếu thẳng';
     } else {
       const rawScore = Math.min(100, Math.round(92 + Math.min(8, (centerRatio || 0.8) * 10)));
-      this.smoothedScore = Math.round(this.smoothedScore * 0.65 + rawScore * 0.35);
+      this.smoothedScore = Math.round(this.smoothedScore * 0.60 + rawScore * 0.40);
       score = Math.max(90, this.smoothedScore);
-      message = 'Đã phát hiện khuôn mặt · Đang xác thực...';
+      message = 'Đã nhận diện khuôn mặt · Giữ thẳng vị trí';
     }
 
     const outputRect = hasFace ? (this.lastDetectedRect || faceRect) : undefined;

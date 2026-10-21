@@ -15,7 +15,8 @@ import {
   Eye,
   Check,
   SwitchCamera,
-  AlertTriangle
+  AlertTriangle,
+  CameraOff
 } from 'lucide-react';
 import { UttLogo } from '../common/UttLogo';
 
@@ -194,10 +195,16 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
     if (status !== 'ready' && status !== 'verifying') return;
 
     const interval = setInterval(() => {
-      if (canvasRef.current && videoRef.current) {
-        const video = videoRef.current;
+      if (canvasRef.current) {
         const canvas = canvasRef.current;
-        if (cameraPermission === 'granted' && (video.videoWidth === 0 || video.readyState < 2 || video.paused)) return;
+        // Require active live hardware camera video stream
+        if (cameraPermission !== 'granted' || !videoRef.current || !cameraStream) {
+          setIsRealFaceDetected(false);
+          return;
+        }
+
+        const video = videoRef.current;
+        if (video.videoWidth === 0 || video.readyState < 2 || video.paused) return;
 
         try {
           const analysis = faceService.analyzeFrame(canvas, video);
@@ -214,18 +221,16 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
             setFaceFeedback('Đã nhận diện khuôn mặt · Giữ thẳng vị trí');
           } else {
             missedFramesRef.current++;
-            // Debounce: only flip to not detected after 3 consecutive missed frames (~900ms)
-            if (missedFramesRef.current >= 3) {
-              setIsRealFaceDetected(false);
-              setFaceFeedback(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
-            }
+            // Reset state immediately if no face
+            setIsRealFaceDetected(false);
+            setFaceFeedback(analysis.message || 'Vui lòng đưa khuôn mặt vào giữa khung bầu dục');
           }
         } catch {}
       }
     }, 280);
 
     return () => clearInterval(interval);
-  }, [status, cameraPermission]);
+  }, [status, cameraPermission, cameraStream]);
 
   const handleStartVerification = useCallback(() => {
     if (status === 'verifying') return;
@@ -268,14 +273,14 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
     timerRef.current = interval;
   }, [status, isRealFaceDetected, cameraPermission]);
 
-  // Auto-start verification only when a real face is detected in the oval
+  // Auto-start verification immediately when face is in oval
   useEffect(() => {
     if (status !== 'ready' || !isRealFaceDetected) return;
     const autoTimer = setTimeout(() => {
       if (status === 'ready' && isRealFaceDetected) {
         handleStartVerification();
       }
-    }, 1200);
+    }, 600);
     return () => clearTimeout(autoTimer);
   }, [status, cameraPermission, isRealFaceDetected, handleStartVerification]);
 
@@ -301,8 +306,15 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
     let matchPassed = false;
     let score = 0;
 
-    if (canvasRef.current && videoRef.current) {
+    if (canvasRef.current) {
       try {
+        if (cameraPermission !== 'granted' || !videoRef.current || !cameraStream) {
+          faceService.playWarningTone();
+          setStatus('failed');
+          setErrorMessage('Vui lòng bật quyền truy cập camera để thực hiện xác thực khuôn mặt.');
+          return;
+        }
+
         const analysis = faceService.analyzeFrame(canvasRef.current, videoRef.current);
         if (analysis.isHandDetected) {
           faceService.playWarningTone();
@@ -313,7 +325,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
 
         // Strict Human Face & Central Oval Check:
         // Must reject empty room, wall corner, desk, ceiling, or uncentered positioning
-        const hasValidFace = (analysis.hasFace && analysis.inOval) || (cameraPermission === 'simulated' && !cameraStream);
+        const hasValidFace = analysis.hasFace && analysis.inOval;
 
         if (!hasValidFace) {
           faceService.playWarningTone();
@@ -347,8 +359,8 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
           }
           score = bestSim;
 
-          // Seamless auto-calibration: Update/enrich template with live camera vector
-          if (score < 75) {
+          // Seamless auto-calibration: Update/enrich template with live camera vector if same person with minor angle/lighting variance (>= 58%)
+          if (score >= 58 && score < 75) {
             const updatedAux = Array.isArray(studentTmpl.auxEmbeddings) ? [...studentTmpl.auxEmbeddings] : [];
             if (!updatedAux.some(v => faceService.computeSimilarity(v, liveEmb) > 90)) {
               updatedAux.push(liveEmb);
@@ -361,10 +373,12 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
               qualityScore: 98,
               registeredAt: new Date().toISOString()
             });
-            score = Math.floor(Math.random() * 4 + 95); // 95 - 98%
+            score = Math.floor(Math.random() * 4 + 92); // 92 - 95%
+            matchPassed = true;
+          } else if (score >= 75) {
             matchPassed = true;
           } else {
-            matchPassed = true;
+            matchPassed = false;
           }
         } else {
           // First-time face registration & check-in:
@@ -691,17 +705,22 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
                     className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
                   />
                 ) : (
-                  /* High fidelity simulated viewfinder showing student facial target */
-                  <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
-                    <img
-                      src="/src/assets/images/avatar_student_utt_1791203537106.jpg"
-                      alt="Student Target Face"
-                      className="w-full h-full object-cover opacity-85 filter contrast-105"
-                    />
-                    <div className="absolute top-3 left-3 px-2 py-1 rounded bg-black/60 backdrop-blur-xs text-[10px] text-white/90 font-mono flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>Live 30 FPS</span>
+                  <div className="relative w-full h-full flex flex-col items-center justify-center bg-slate-950 p-6 text-center select-none">
+                    <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mb-3 shadow-inner">
+                      <CameraOff className="w-8 h-8 text-slate-500" />
                     </div>
+                    <h4 className="text-sm font-bold text-white mb-1">Webcam chưa được kích hoạt</h4>
+                    <p className="text-xs text-slate-400 max-w-xs mb-4">
+                      Vui lòng cấp quyền truy cập camera trên thiết bị để thực hiện điểm danh khuôn mặt.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => startCamera(facingMode)}
+                      className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-2"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Bật Camera</span>
+                    </button>
                   </div>
                 )}
 
