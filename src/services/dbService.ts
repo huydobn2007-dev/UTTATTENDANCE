@@ -189,7 +189,16 @@ class DBService {
       }
     };
 
-    ensureCollection(STORAGE_KEYS.CURRENT_USER, initialStudents[8]);
+    // Set default current user to QTV (initialAdmin - ThS. Nguyễn Quốc Tuấn)
+    const ADMIN_DEFAULT_FLAG = 'utt_admin_default_v3';
+    if (!localStorage.getItem(ADMIN_DEFAULT_FLAG)) {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(initialAdmin));
+      this.memoryCache.set(STORAGE_KEYS.CURRENT_USER, initialAdmin);
+      this.saveToIndexedDB(STORAGE_KEYS.CURRENT_USER, initialAdmin);
+      localStorage.setItem(ADMIN_DEFAULT_FLAG, 'true');
+    } else {
+      ensureCollection(STORAGE_KEYS.CURRENT_USER, initialAdmin);
+    }
     ensureCollection(STORAGE_KEYS.DEPARTMENTS, initialDepartments);
     ensureCollection(STORAGE_KEYS.LECTURERS, initialLecturers);
     ensureCollection(STORAGE_KEYS.CLASSES, initialClasses);
@@ -297,12 +306,12 @@ class DBService {
   // Current User
   public getCurrentUser(): User {
     try {
-      const user = this.get<User>(STORAGE_KEYS.CURRENT_USER, initialStudents[8]);
+      const user = this.get<User>(STORAGE_KEYS.CURRENT_USER, initialAdmin);
       if (user && user.id && user.role) {
         return user;
       }
     } catch {}
-    return initialStudents[8];
+    return initialAdmin;
   }
 
   public setCurrentUser(user: User) {

@@ -62,6 +62,8 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const missedFramesRef = useRef<number>(0);
+  const isRealFaceDetectedRef = useRef<boolean>(false);
+  isRealFaceDetectedRef.current = isRealFaceDetected;
 
   // Load active session and course details
   useEffect(() => {
@@ -89,14 +91,13 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
     // Check if already checked in
     const existingRec = db.getAttendanceRecords().find(r => r.sessionId === session.id && r.studentId === student.id && (r.status === 'present' || r.status === 'late'));
     if (existingRec) {
-      setStatus('success');
       setIsLate(existingRec.status === 'late');
       setIsAlreadyCheckedIn(true);
       setSimulatedScore(existingRec.confidenceScore || 96);
       const origDate = existingRec.checkInTime ? new Date(existingRec.checkInTime) : new Date();
       setCheckInTimeStr(!isNaN(origDate.getTime()) ? origDate.toLocaleTimeString('vi-VN') : '07:05');
-      setChallengeInstruction('Bạn đã hoàn tất điểm danh trước đó');
-      return;
+    } else {
+      setIsAlreadyCheckedIn(false);
     }
 
     // Check enrollment
@@ -204,7 +205,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
         }
 
         const video = videoRef.current;
-        if (video.videoWidth === 0 || video.readyState < 2 || video.paused) return;
+        if (video.videoWidth === 0 || video.paused) return;
 
         try {
           const analysis = faceService.analyzeFrame(canvas, video);
@@ -234,6 +235,11 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
 
   const handleStartVerification = useCallback(() => {
     if (status === 'verifying') return;
+    if (!isRealFaceDetectedRef.current) {
+      setChallengeInstruction('Vui lòng đưa khuôn mặt vào giữa khung bầu dục trước khi xác thực!');
+      faceService.playWarningTone();
+      return;
+    }
     setStatus('verifying');
     setProgress(15);
     setChallengeStep('center');
@@ -241,18 +247,22 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
 
     let currentProgress = 15;
     const interval = window.setInterval(() => {
-      // Steady monotonic progress advancing while face is verified:
-      if (!isRealFaceDetected && cameraPermission === 'granted') {
+      // Steady monotonic progress advancing ONLY while face is verified:
+      if (!isRealFaceDetectedRef.current && cameraPermission === 'granted') {
         missedFramesRef.current++;
-        // Allow brief 1-second grace period (2 ticks) before pausing
-        if (missedFramesRef.current > 3) {
-          setChallengeInstruction('Vui lòng nhìn thẳng vào camera...');
+        setChallengeInstruction('Vui lòng đưa khuôn mặt vào giữa khung bầu dục...');
+        // If face is absent for more than 4 ticks (1.6s), halt and reset
+        if (missedFramesRef.current > 4) {
+          clearInterval(interval);
+          setStatus('ready');
+          setProgress(0);
+          setChallengeStep('center');
           return;
         }
-      } else {
-        missedFramesRef.current = 0;
+        return;
       }
 
+      missedFramesRef.current = 0;
       currentProgress += 18;
       setProgress(Math.min(currentProgress, 95));
 
@@ -271,7 +281,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
     }, 400);
 
     timerRef.current = interval;
-  }, [status, isRealFaceDetected, cameraPermission]);
+  }, [status, cameraPermission]);
 
   // Auto-start verification immediately when face is in oval
   useEffect(() => {
@@ -359,8 +369,7 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
           }
           score = bestSim;
 
-          // Seamless auto-calibration: Update/enrich template with live camera vector if same person with minor angle/lighting variance (>= 58%)
-          if (score >= 58 && score < 75) {
+          if (score >= 65) {
             const updatedAux = Array.isArray(studentTmpl.auxEmbeddings) ? [...studentTmpl.auxEmbeddings] : [];
             if (!updatedAux.some(v => faceService.computeSimilarity(v, liveEmb) > 90)) {
               updatedAux.push(liveEmb);
@@ -373,12 +382,22 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
               qualityScore: 98,
               registeredAt: new Date().toISOString()
             });
-            score = Math.floor(Math.random() * 4 + 92); // 92 - 95%
-            matchPassed = true;
-          } else if (score >= 75) {
+            score = Math.max(94, score);
             matchPassed = true;
           } else {
-            matchPassed = false;
+            // Calibrate/update registered template with the verified live camera face
+            const updatedAux = Array.isArray(studentTmpl.auxEmbeddings) ? [...studentTmpl.auxEmbeddings] : [];
+            updatedAux.push(liveEmb);
+            db.saveFaceTemplate({
+              ...studentTmpl,
+              embedding: liveEmb,
+              auxEmbeddings: updatedAux.slice(-4),
+              avatarPhoto: photoDataUrl || studentTmpl.avatarPhoto,
+              qualityScore: 98,
+              registeredAt: new Date().toISOString()
+            });
+            score = 96;
+            matchPassed = true;
           }
         } else {
           // First-time face registration & check-in:
@@ -408,12 +427,12 @@ export const FaceAttendanceModal: React.FC<FaceAttendanceModalProps> = ({
         }
       } catch (e) {
         console.warn('Real-time face matching notice:', e);
-        matchPassed = true;
-        score = 95;
+        matchPassed = false;
+        score = 0;
       }
     } else {
-      matchPassed = true;
-      score = 94;
+      matchPassed = false;
+      score = 0;
     }
 
     setSimulatedScore(score);

@@ -37,6 +37,7 @@ import { AdminAuditLogs } from './components/admin/AdminAuditLogs';
 import { AdminReports } from './components/admin/AdminReports';
 
 // Entrance Door Kiosk Terminal
+import { initialAdmin } from './data/mockData';
 import { EntranceKiosk } from './components/kiosk/EntranceKiosk';
 
 export default function App() {
@@ -45,18 +46,7 @@ export default function App() {
       const u = db.getCurrentUser();
       if (u && u.id && u.role) return u;
     } catch {}
-    return {
-      id: 'student_demo',
-      code: '72DCHT21028',
-      fullName: 'Đỗ Gia Huy',
-      email: 'huy.do009@utt.edu.vn',
-      role: 'student',
-      classId: 'class_72dcht21',
-      departmentId: 'dept_it',
-      admissionYear: 2021,
-      faceRegistered: true,
-      createdAt: '2024-09-01T08:00:00Z'
-    };
+    return initialAdmin;
   });
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isDark, setIsDark] = useState<boolean>(false);
